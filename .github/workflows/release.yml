@@ -1,7 +1,7 @@
 name: Release
 
 # Publishes the files in release/ as a draft GitHub release named after manifest.json's version (e.g. 1.0.0, no "v").
-# Runs when release/ or manifest.json changes on main, or by hand from the Actions tab.
+# Runs when release/ or manifest.json changes on main, or by hand from the Actions tab (Run workflow).
 # A draft with the same version is replaced; a published release is never touched (bump the version instead).
 on:
   push:
