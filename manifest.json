@@ -1,0 +1,9 @@
+{
+  "id": "planfold",
+  "name": "Planfold",
+  "version": "1.0.0",
+  "minAppVersion": "1.4.0",
+  "description": "Plan your days, weeks, months and years in plain Markdown, from one home page with to-dos, moods and habits. (Closed source)",
+  "author": "Remi",
+  "isDesktopOnly": false
+}
