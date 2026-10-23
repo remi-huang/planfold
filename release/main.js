@@ -15,7 +15,7 @@ const WEEK_VIEW_TYPE = "planfold-week";
 let LANG = "en";
 const L = (en, zh) => (LANG === "zh" && zh != null ? zh : en);
 const guessLang = () => {
-  try { const l = (window.localStorage.getItem("language") || navigator.language || "").toLowerCase(); return l.startsWith("zh") ? "zh" : "en"; }
+  try { const l = String((obsidian.getLanguage && obsidian.getLanguage()) || navigator.language || "").toLowerCase(); return l.startsWith("zh") ? "zh" : "en"; }
   catch (e) { return "en"; }
 };
 
@@ -403,13 +403,12 @@ class PlanfoldPlugin extends Plugin {
   loadLocal() {
     try {
       // per vault, per device; "tally-local" is where the earlier Tally build kept the same lists
-      if (this.app.loadLocalStorage) return this.app.loadLocalStorage("planfold-local") || this.app.loadLocalStorage("tally-local");
-      const t = window.localStorage.getItem("planfold-local") || window.localStorage.getItem("tally-local"); return t ? JSON.parse(t) : null;
+      return this.app.loadLocalStorage("planfold-local") || this.app.loadLocalStorage("tally-local") || null;
     } catch (e) { return null; }
   }
   saveLocal() {
     const o = {}; for (const k of LOCAL_KEYS) o[k] = this.settings[k];
-    try { if (this.app.saveLocalStorage) this.app.saveLocalStorage("planfold-local", o); else window.localStorage.setItem("planfold-local", JSON.stringify(o)); }
+    try { this.app.saveLocalStorage("planfold-local", o); }
     catch (e) { console.error("Planfold: couldn't save recent notes", e); }
   }
   /** Recent/activity change on every open and every autosave: batch them (at most every 5 s), on this device only */

@@ -11,6 +11,8 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 jobs:
   release:
@@ -23,6 +25,13 @@ jobs:
           test "$(jq -r .version release/manifest.json)" = "$VERSION"
           test -s release/main.js && test -s release/styles.css
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+      - name: Attest release files
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            release/main.js
+            release/styles.css
+            release/manifest.json
       - name: Create draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -21,6 +21,14 @@ Everything Planfold writes is ordinary Markdown in your vault:
 
 Planfold works with your existing daily notes settings and templates. It makes no network requests and collects no data.
 
+## Privacy and permissions
+
+Planfold runs entirely on your device. It makes no network requests and collects no data.
+
+- **Reads your vault's file list** to show Recent notes, Projects and search on Home.
+- **Writes to the clipboard** only when you press *Copy* in the mobile quick capture guide.
+- **Device-only lists** (recent notes and activity) are kept with Obsidian's per-vault local storage, so they don't sync between devices.
+
 ## Commands
 
 - Open home
