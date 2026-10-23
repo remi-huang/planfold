@@ -27,13 +27,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if gh release view "$VERSION" >/dev/null 2>&1; then
-            if [ "$(gh release view "$VERSION" --json isDraft -q .isDraft)" = "true" ]; then
-              gh release delete "$VERSION" --yes --cleanup-tag
-            else
-              echo "Release $VERSION is already published — bump the version to release again."; exit 0
-            fi
-          fi
+          set -x
+          R="repos/$GITHUB_REPOSITORY/releases"
+          PUBLISHED=$(gh api "$R" --jq ".[] | select(.tag_name == \"$VERSION\" and (.draft | not)) | .id")
+          if [ -n "$PUBLISHED" ]; then echo "Release $VERSION is already published — bump the version to release again."; exit 0; fi
+          for id in $(gh api "$R" --jq ".[] | select(.draft and (.tag_name == \"$VERSION\" or .name == \"$VERSION\")) | .id"); do
+            gh api -X DELETE "$R/$id"
+          done
           gh release create "$VERSION" --target "$GITHUB_SHA" --title "$VERSION" --draft \
             --notes "Planfold $VERSION" \
             release/main.js release/manifest.json release/styles.css
