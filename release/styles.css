@@ -208,7 +208,7 @@
 .planfold-search-input { width: 100%; height: var(--t-touch) !important; padding: 0 var(--t-space-5) !important; border: 1px solid var(--t-line) !important; background: var(--t-panel) !important; border-radius: var(--t-radius) !important; font-size: var(--t-type-body); }
 .planfold-search-results { position: absolute; left: 0; right: 0; top: 46px; z-index: 5; background: var(--t-panel); border-radius: var(--t-radius); }
 .planfold-search-results:not(:empty) { border: 0; padding: var(--t-space-1); box-shadow: var(--shadow-s); }
-.planfold-search-hit { display: flex !important; justify-content: space-between !important; align-items: baseline !important; width: 100%; justify-content: space-between; gap: var(--t-space-3); background: none !important; border: 0 !important; height: auto !important; padding: var(--t-space-2) var(--t-space-3) !important; text-align: left; cursor: pointer; border-radius: 4px; }
+.planfold-search-hit { display: flex !important; justify-content: space-between !important; align-items: baseline !important; width: 100%; gap: var(--t-space-3); background: none !important; border: 0 !important; height: auto !important; padding: var(--t-space-2) var(--t-space-3) !important; text-align: left; cursor: pointer; border-radius: 4px; }
 .planfold-search-hit:hover { background: var(--t-hover) !important; }
 .planfold-list { overflow: hidden; }
 .planfold-file-row { padding: var(--t-space-3) var(--t-space-4); cursor: pointer; border-radius: var(--t-radius-sm); }
@@ -544,7 +544,7 @@
 .planfold-chips { display: flex; flex-wrap: wrap; gap: var(--t-space-2); margin: var(--t-space-4) 0 var(--t-space-3); }
 .planfold-chip { height: 30px !important; padding: 0 var(--t-space-4) !important; border-radius: 15px !important; background: var(--t-hover) !important; border: 0 !important; font-size: var(--t-type-body); cursor: pointer; }
 .planfold-chip.is-on { background: var(--text-normal) !important; color: var(--background-primary) !important; border-color: var(--text-normal) !important; }
-.planfold-onboarding .planfold-add { padding: 0; border: 1px solid var(--background-modifier-border); border-radius: 6px; padding: var(--t-space-2) var(--t-space-3); }
+.planfold-onboarding .planfold-add { border: 1px solid var(--background-modifier-border); border-radius: 6px; padding: var(--t-space-2) var(--t-space-3); }
 .planfold-tree { max-height: 360px; overflow-y: auto; margin: var(--t-space-3) 0; border: 0; background: var(--t-hover); border-radius: 6px; padding: var(--t-space-1); }
 .planfold-tree-row { display: flex; align-items: center; gap: var(--t-space-1); padding: var(--t-space-1) 0; }
 .planfold-tree-tog { width: 18px; height: 18px !important; padding: 0 !important; background: none !important; border: 0 !important; color: var(--text-muted); cursor: pointer; font-size: var(--t-type-label); }
@@ -955,7 +955,7 @@
 .planfold-ff-todos .planfold-add-input::placeholder { color: var(--f-muted); }
 .planfold-ff-week-head { margin-top: var(--t-space-5); }
 .planfold-ff-card .planfold-star.is-on svg { display: none; }
-.planfold-ff-card .planfold-star.is-on::before { content: ""; width: 9px; height: 8px; background: var(--f-attn); clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.planfold-ff-card .planfold-star.is-on::before { content: ""; width: 0; height: 0; border-left: 4.5px solid transparent; border-right: 4.5px solid transparent; border-bottom: 8px solid var(--f-attn); }
 
 /* quick note */
 .planfold-ff-card.planfold-home-capture { display: flex; flex-direction: column; gap: var(--t-space-2); height: 100%; box-sizing: border-box; }
@@ -1275,7 +1275,7 @@ body.planfold-look .workspace-ribbon .clickable-icon:hover { opacity: 1; backgro
 /* done: a small filled check, and the text quiets down */
 .planfold-weekcal-check { display: inline-block; flex: 0 0 auto; width: 10px; height: 12px; margin-right: var(--t-space-1); vertical-align: -1px; position: relative; animation: planfold-check-pop 320ms cubic-bezier(.34,1.56,.64,1) both; }
 .planfold-weekcal-check::after { content: ""; position: absolute; left: 3px; top: 0.5px; width: 3.5px; height: 7.5px; border: solid var(--f-tick); border-width: 0 1.5px 1.5px 0; transform: rotate(45deg); }
-.planfold-weekcal-event.is-done strong, .planfold-root .planfold-weekcal-untimed.is-done { color: var(--f-muted); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--f-muted) 60%, transparent); }
+.planfold-weekcal-event.is-done strong, .planfold-root .planfold-weekcal-untimed.is-done { color: var(--f-muted); text-decoration: line-through; }
 .planfold-weekcal-event span.planfold-weekcal-check { display: inline-block; margin-top: 0; }
 @keyframes planfold-check-pop { from { transform: scale(.4); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .planfold-weekcal-check { animation: none; } }
@@ -1419,7 +1419,7 @@ body.planfold-look .workspace-ribbon .clickable-icon:hover { opacity: 1; backgro
 
 /* ---------- proto.46: calmer left rhythm, habits as a grid, Today more of the lead ---------- */
 /* left: the quick note sits a little lower and taller, so the column breathes evenly */
-.planfold-ff-rail .planfold-rail-group:has(.planfold-home-capture) { margin-top: var(--t-space-5); }
+.planfold-ff-rail .planfold-rail-group.planfold-rail-capture { margin-top: var(--t-space-5); }
 .planfold-home-capture.is-light .planfold-home-cap-input { min-height: 72px; }
 .planfold-home-capture.is-light.is-open .planfold-home-cap-input { min-height: 120px; }
 /* habits: a title line, then an even grid that reflows with the width (long names are cut, full name on hover) */
@@ -1456,7 +1456,7 @@ body.planfold-look .workspace-ribbon .clickable-icon:hover { opacity: 1; backgro
 .planfold-rail-habits { gap: 0; }
 .planfold-rail-habits .planfold-ff-habit { min-height: 30px; font-size: var(--t-type-body); }
 .planfold-rail-habits .planfold-ff-habit.is-done .planfold-ff-habit-name { color: var(--f-muted); }
-.planfold-ff-rail .planfold-rail-group:has(.planfold-home-capture) { margin-top: var(--t-space-2); }
+.planfold-ff-rail .planfold-rail-group.planfold-rail-capture { margin-top: var(--t-space-2); }
 .planfold-root.is-home .planfold-widget-today { align-self: start; } /* Today keeps its own height beside a taller left column */
 
 /* ---------- proto.49: quieter quick note; sidebar calendar Day · Week · Month ---------- */
@@ -1990,7 +1990,6 @@ body.is-mobile .planfold-capture-modal {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: break-word;
-  text-indent: 0;
   overflow-x: hidden;
 }
 .planfold-root.planfold-palette-ff .planfold-note .planfold-field-input:is(:focus, :focus-visible),
@@ -2041,7 +2040,7 @@ body.is-mobile .planfold-capture-modal {
 .planfold-root .planfold-todo.planfold-add {
   display: grid;
   grid-template-columns: 14px minmax(0, 1fr);
-  column-gap: var(--t-space-3);
+  gap: 0 var(--t-space-3);
   align-items: center;
   min-height: var(--t-control-h);
 }
