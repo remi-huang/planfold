@@ -1,0 +1,48 @@
+name: Release
+
+# Publishes the files in release/ as a draft GitHub release named after manifest.json's version (e.g. 1.0.5, no "v").
+# Runs when release/ or manifest.json changes on main, or by hand from the Actions tab (Run workflow).
+# A draft with the same version is replaced; a published release is never touched (bump the version instead).
+# The source lives in a private repository; Obsidian verifies each release by rebuilding it from there.
+on:
+  push:
+    branches: [main]
+    paths: [manifest.json, "release/**", .github/workflows/release.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check files
+        run: |
+          VERSION="$(jq -r .version manifest.json)"
+          test "$(jq -r .version release/manifest.json)" = "$VERSION"
+          test -s release/main.js && test -s release/styles.css
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+      - name: Attest release files
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            release/main.js
+            release/styles.css
+            release/manifest.json
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          R="repos/$GITHUB_REPOSITORY/releases"
+          PUBLISHED=$(gh api "$R" --jq ".[] | select(.tag_name == \"$VERSION\" and (.draft | not)) | .id")
+          if [ -n "$PUBLISHED" ]; then echo "Release $VERSION is already published — bump the version to release again."; exit 0; fi
+          for id in $(gh api "$R" --jq ".[] | select(.draft and (.tag_name == \"$VERSION\" or .name == \"$VERSION\")) | .id"); do
+            gh api -X DELETE "$R/$id"
+          done
+          gh release create "$VERSION" --target "$GITHUB_SHA" --title "$VERSION" --draft \
+            --notes "Planfold $VERSION" \
+            release/main.js release/manifest.json release/styles.css
