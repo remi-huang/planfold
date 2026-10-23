@@ -3,7 +3,7 @@ name: Release
 # Publishes the files in release/ as a draft GitHub release named after manifest.json's version (e.g. 1.0.5, no "v").
 # Runs when release/ or manifest.json changes on main, or by hand from the Actions tab (Run workflow).
 # A draft with the same version is replaced; a published release is never touched (bump the version instead).
-# The source lives in a private repository; Obsidian verifies each release by rebuilding it from there.
+# The source lives in a private repository (same owner, same tag); Obsidian verifies each release by rebuilding it from there.
 on:
   push:
     branches: [main]
