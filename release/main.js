@@ -446,6 +446,7 @@ class PlanfoldPlugin extends Plugin {
   dir() { return clean(this.settings.folder) || "Planfold"; }
   dailyOpts() {
     if (this.settings.dailySource === "custom") return { folder: clean(this.settings.dailyFolder), format: this.settings.dailyFormat || DKEY, template: "" };
+    if (this.settings.dailySource === "periodic") { const pd = this.periodicDaily(); if (pd) return pd; }
     const dn = this.app.internalPlugins && this.app.internalPlugins.getPluginById && this.app.internalPlugins.getPluginById("daily-notes");
     const o = (dn && dn.instance && dn.instance.options) || {};
     return { folder: clean(o.folder), format: o.format || DKEY, template: (o.template || "").trim() };
@@ -894,6 +895,44 @@ class PlanfoldPlugin extends Plugin {
     return this.saveSettings();
   }
   /** Daily notes that already exist in the Obsidian daily-notes folder (for onboarding) */
+  /** The daily-note settings of the Periodic Notes plugin, when it is installed and its daily notes are on */
+  periodicDaily() {
+    const pn = this.app.plugins && this.app.plugins.plugins && this.app.plugins.plugins["periodic-notes"];
+    const d = pn && pn.settings && pn.settings.daily;
+    return d && d.enabled ? { folder: clean(d.folder), format: d.format || DKEY, template: (d.template || "").trim() } : null;
+  }
+  /** How many notes in `folder` (not its subfolders) are named in the date `format` */
+  countDaily(folder, format) {
+    let n = 0;
+    for (const f of this.app.vault.getMarkdownFiles()) {
+      const rel = folder ? (f.path.startsWith(folder + "/") ? f.path.slice(folder.length + 1) : null) : f.path;
+      if (rel == null || (!format.includes("/") && rel.includes("/"))) continue;
+      if (moment(rel.replace(/\.md$/, ""), format, true).isValid()) n++;
+    }
+    return n;
+  }
+  /** Daily notes the person already keeps, so setup can offer to keep using them exactly as they are:
+      Obsidian's Daily notes, Periodic Notes, or a folder of date-named notes Planfold finds on its own. */
+  dailySources() {
+    const out = [];
+    const dn = this.app.internalPlugins && this.app.internalPlugins.getPluginById && this.app.internalPlugins.getPluginById("daily-notes");
+    if (dn) {
+      const o = (dn.instance && dn.instance.options) || {}, folder = clean(o.folder), format = o.format || DKEY, count = this.countDaily(folder, format);
+      if (dn.enabled || count) out.push({ source: "obsidian", via: L("Obsidian Daily notes", "Obsidian「日记」插件"), folder, format, count });
+    }
+    const pd = this.periodicDaily();
+    if (pd && !out.some((s) => s.folder === pd.folder && s.format === pd.format)) out.push({ source: "periodic", via: "Periodic Notes", folder: pd.folder, format: pd.format, count: this.countDaily(pd.folder, pd.format) });
+    // no plugin, just a habit: the folder holding the most date-named notes
+    const formats = [DKEY, "YYYY.MM.DD", "YYYYMMDD", "YYYY年MM月DD日", "YYYY年M月D日"], tally = new Map();
+    for (const f of this.app.vault.getMarkdownFiles()) {
+      const folder = f.parent && f.parent.path !== "/" ? f.parent.path : "";
+      for (const fmt of formats) if (moment(f.basename, fmt, true).isValid()) { const k = folder + "\u0000" + fmt; tally.set(k, (tally.get(k) || 0) + 1); break; }
+    }
+    let best = null;
+    for (const [k, n] of tally) if (n >= 3 && (!best || n > best.count)) { const [folder, format] = k.split("\u0000"); best = { folder, format, count: n }; }
+    if (best && !out.some((s) => s.folder === best.folder && s.format === best.format)) out.push(Object.assign({ source: "custom", via: L("found in your vault", "在你的库里找到") }, best));
+    return out;
+  }
   existingDaily() {
     const dn = this.app.internalPlugins && this.app.internalPlugins.getPluginById && this.app.internalPlugins.getPluginById("daily-notes");
     const o = (dn && dn.instance && dn.instance.options) || {};
@@ -2582,8 +2621,9 @@ class OnboardingModal extends Modal {
     this.plugin = plugin;
     this.step = 0;
     this.lang = plugin.settings.language || guessLang();
-    this.ex = plugin.existingDaily();
-    this.where = this.ex.count > 0 && this.ex.enabled ? "keep" : "new";
+    this.sources = plugin.dailySources();
+    this.where = this.sources.length ? "src0" : "new"; // people who already keep daily notes keep them, as they are
+    this.pickFolder = ""; this.pickFormat = DKEY;
     this.picked = null;
     this.before = { look: plugin.settings.homePalette, shortcuts: plugin.settings.explorerShortcuts };
     this.look = "fourfold"; this.shortcuts = true; // recommended: the Planfold design, with Pinned and Recent
@@ -2630,8 +2670,26 @@ class OnboardingModal extends Modal {
       h(c, "h2", "planfold-h2", L("Where should your daily notes go?", "每天的日记要存在哪里？"));
       h(c, "p", "planfold-muted", L("Planfold makes one note per day for that day's plan and reflection.", "Planfold 每天会建一篇日记，用来写当天的计划和复盘。"));
       const opts = h(c, "div", "planfold-ob-cards");
-      const keepTitle = this.ex.folder ? L(`Keep using my ${this.ex.folder}/ folder`, `继续用我现在的 ${this.ex.folder}/ 文件夹`) : L("Keep using my daily notes (vault root)", "继续用我现在的日记（放在库的根目录）");
-      if (this.ex.count > 0 && this.ex.enabled) this.option(opts, "keep", keepTitle, L(`${this.ex.count} notes found. Planfold adds its sections only to new notes; old notes stay as they are.`, `找到 ${this.ex.count} 篇日记。Planfold 只在新日记里加入自己的段落，旧日记不会改动。`));
+      this.sources.forEach((s, i) => {
+        const where = s.folder ? `${s.folder}/` : L("the vault root", "库的根目录");
+        const title = L(`Keep using my daily notes in ${where}`, `继续用我现在的日记（${where}）`);
+        const found = s.count ? L(`${s.count} notes found, named like ${moment().format(s.format)}`, `找到 ${s.count} 篇，文件名像 ${moment().format(s.format)}`) : L(`Named like ${moment().format(s.format)}`, `文件名像 ${moment().format(s.format)}`);
+        const via = { obsidian: L("Obsidian Daily notes", "Obsidian「日记」插件"), periodic: "Periodic Notes", custom: L("found in your vault", "在你的库里找到") }[s.source];
+        this.option(opts, "src" + i, title, L(`${found} · ${via}. `, `${found} · ${via}。`) + L("Your folder, file names and template stay as they are. Planfold asks before adding anything to a note you already wrote.", "文件夹、文件名和模板都保持原样。已经写过的日记，Planfold 会先问你再加内容。"));
+      });
+      this.option(opts, "pick", L("Use another folder", "用我指定的文件夹"), L("Point Planfold at the folder and date format you already use.", "告诉 Planfold 你的日记在哪个文件夹、用什么日期格式命名。"));
+      if (this.where === "pick") {
+        const box = h(opts, "div", "planfold-ob-pick");
+        const folders = (this.app.vault.getAllLoadedFiles ? this.app.vault.getAllLoadedFiles() : []).filter((f) => f instanceof TFolder && f.path !== "/").map((f) => f.path).sort();
+        const dl = h(box, "datalist"); dl.id = "planfold-ob-folders"; folders.forEach((f) => { const o = h(dl, "option"); o.value = f; });
+        const fi = h(box, "input", "planfold-input"); fi.placeholder = L("Folder, e.g. Journal/Daily", "文件夹，例如 Journal/Daily"); fi.value = this.pickFolder; fi.setAttr("list", "planfold-ob-folders");
+        const fo = h(box, "input", "planfold-input"); fo.placeholder = DKEY; fo.value = this.pickFormat;
+        const ex = h(box, "span", "planfold-muted", "");
+        const show = () => { ex.setText(L(`Today: ${this.pickFolder ? this.pickFolder + "/" : ""}${moment().format(this.pickFormat || DKEY)}.md`, `今天：${this.pickFolder ? this.pickFolder + "/" : ""}${moment().format(this.pickFormat || DKEY)}.md`)); };
+        fi.addEventListener("input", () => { this.pickFolder = clean(fi.value); show(); });
+        fo.addEventListener("input", () => { this.pickFormat = fo.value.trim() || DKEY; show(); });
+        show();
+      }
       const tf = this.plugin.settings.migratedFrom ? this.plugin.dir() : "Planfold";
       this.option(opts, "new", L(`Create a new ${tf}/ folder`, `新建一个 ${tf}/ 文件夹`), L(`Daily notes go in ${tf}/Daily, named like ${moment().format(DKEY)}.`, `日记放在 ${tf}/Daily，文件名像 ${moment().format(DKEY)}。`));
     } else {
@@ -2666,7 +2724,10 @@ class OnboardingModal extends Modal {
     S.language = this.lang; LANG = this.lang;
     if (!S.templatesEdited && (langChanged || !S.templates)) S.templates = defaultTemplates(this.lang);
     if (!S.migratedFrom) S.folder = "Planfold";
-    if (this.where === "keep") S.dailySource = "obsidian";
+    const src = this.where.startsWith("src") ? this.sources[+this.where.slice(3)] : null;
+    if (src && src.source === "custom") { S.dailySource = "custom"; S.dailyFolder = src.folder; S.dailyFormat = src.format; }
+    else if (src) S.dailySource = src.source; // follow Obsidian Daily notes / Periodic Notes, whatever they say later
+    else if (this.where === "pick") { S.dailySource = "custom"; S.dailyFolder = this.pickFolder; S.dailyFormat = this.pickFormat || DKEY; }
     else { S.dailySource = "custom"; S.dailyFolder = `${p.dir()}/Daily`; S.dailyFormat = DKEY; }
     if (!skipHabits) {
       const old = p.goalsCache || [];
@@ -2792,8 +2853,8 @@ class PlanfoldSettingTab extends PluginSettingTab {
     const p = this.plugin, S = p.settings;
     this.intro(el, L("Planfold reads and writes plain Markdown notes. Change where they live and how they're named.", "Planfold 读写的都是普通 Markdown 笔记。你可以在这里修改它们的位置和命名方式。"));
     this.sub(el, L("Daily", "日记"));
-    this.row(el, L("Daily notes", "日记来源"), L("Follow Obsidian's Daily notes settings, or let Planfold keep its own.", "跟随 Obsidian「日记」插件的设置，或者由 Planfold 自己管理。"))
-      .addDropdown((d) => d.addOption("obsidian", L("Obsidian Daily notes", "Obsidian 日记")).addOption("custom", L("Planfold's own", "Planfold 自己的")).setValue(S.dailySource).onChange((v) => { S.dailySource = v; if (v === "custom" && !S.dailyFolder) S.dailyFolder = `${p.dir()}/Daily`; this.save(true); }));
+    this.row(el, L("Daily notes", "日记来源"), L("Follow Obsidian's Daily notes or Periodic Notes settings, or choose a folder yourself.", "跟随 Obsidian「日记」插件或 Periodic Notes 的设置，或者自己指定文件夹。"))
+      .addDropdown((d) => { d.addOption("obsidian", L("Obsidian Daily notes", "Obsidian 日记")); if (p.periodicDaily() || S.dailySource === "periodic") d.addOption("periodic", "Periodic Notes"); d.addOption("custom", L("A folder I choose", "我指定的文件夹")); return d.setValue(S.dailySource).onChange((v) => { S.dailySource = v; if (v === "custom" && !S.dailyFolder) S.dailyFolder = `${p.dir()}/Daily`; this.save(true); }); });
     if (S.dailySource === "custom") {
       this.row(el, L("Folder", "文件夹"), L("Where daily notes are created.", "新日记创建的位置。")).addText((t) => t.setValue(S.dailyFolder).onChange((v) => { S.dailyFolder = v; this.save(); }));
       this.row(el, L("File name", "文件名"), L(`Today becomes ${moment().format(S.dailyFormat || DKEY)}.md`, `今天的日记会是 ${moment().format(S.dailyFormat || DKEY)}.md`)).addText((t) => t.setValue(S.dailyFormat).onChange((v) => { S.dailyFormat = v || DKEY; this.save(); }));

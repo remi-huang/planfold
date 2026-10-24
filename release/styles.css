@@ -2151,3 +2151,6 @@ body.is-mobile .planfold-capture-modal {
 .planfold-root:not(.planfold-palette-ff) .planfold-home-capture.is-light {
   border: 1px solid var(--background-modifier-border) !important;
 }
+.planfold-ob-pick { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: var(--t-space-2); padding: 0 0 var(--t-space-2); }
+.planfold-ob-pick input { box-sizing: border-box; width: 100%; min-width: 0; }
+.planfold-ob-pick .planfold-muted { grid-column: 1 / -1; font-size: var(--t-type-caption); }

@@ -19,7 +19,7 @@ Everything Planfold writes is ordinary Markdown in your vault:
 | Week / month / year to-dos and notes | One note per period, in the Planfold folder (configurable) |
 | Habit list | `Goals.md` in the Planfold folder |
 
-Planfold works with your existing daily notes settings and templates. It makes no network requests and collects no data.
+Already keep daily notes? Setup finds them — Obsidian's Daily notes, Periodic Notes, or any folder of date-named notes — and keeps your folder, file names and template exactly as they are. Planfold asks before adding anything to a note you already wrote. It makes no network requests and collects no data.
 
 ## Privacy and permissions
 
