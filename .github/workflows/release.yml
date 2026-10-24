@@ -1,8 +1,9 @@
 name: Release
 
-# Publishes the files in release/ as a draft GitHub release named after manifest.json's version (e.g. 1.0.5, no "v").
+# Publishes the files in release/ as a GitHub release named after manifest.json's version (e.g. 1.0.5, no "v").
+# It is published straight away: Obsidian installs the release whose tag matches manifest.json on main, so a draft would break installs.
 # Runs when release/ or manifest.json changes on main, or by hand from the Actions tab (Run workflow).
-# A draft with the same version is replaced; a published release is never touched (bump the version instead).
+# A leftover draft with the same version is replaced; a published release is never touched (bump the version instead).
 # The source lives in a private repository (same owner, same tag); Obsidian verifies each release by rebuilding it from there.
 on:
   push:
@@ -33,7 +34,7 @@ jobs:
             release/main.js
             release/styles.css
             release/manifest.json
-      - name: Create draft release
+      - name: Publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -43,6 +44,6 @@ jobs:
           for id in $(gh api "$R" --jq ".[] | select(.draft and (.tag_name == \"$VERSION\" or .name == \"$VERSION\")) | .id"); do
             gh api -X DELETE "$R/$id"
           done
-          gh release create "$VERSION" --target "$GITHUB_SHA" --title "$VERSION" --draft \
+          gh release create "$VERSION" --target "$GITHUB_SHA" --title "$VERSION" --latest \
             --notes "Planfold $VERSION" \
             release/main.js release/manifest.json release/styles.css
