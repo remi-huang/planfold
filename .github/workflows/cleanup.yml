@@ -1,0 +1,27 @@
+name: Cleanup old releases
+
+# One-off: removes release 1.0.3 and its tag (its source archive held source code) and the unused 1.0.4 draft.
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/cleanup.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete 1.0.3 (release + tag) and the 1.0.4 draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh release delete 1.0.3 --repo "$REPO" --yes --cleanup-tag || true
+          gh api -X DELETE "repos/$REPO/git/refs/tags/1.0.3" || true
+          for id in $(gh api "repos/$REPO/releases" --jq '.[] | select(.draft and (.tag_name == "1.0.4" or .name == "1.0.4")) | .id'); do
+            gh api -X DELETE "repos/$REPO/releases/$id"
+          done
+          gh release list --repo "$REPO"
+          gh api "repos/$REPO/tags" --jq '.[].name'
