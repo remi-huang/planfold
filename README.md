@@ -43,7 +43,7 @@ Planfold registers the URL `obsidian://planfold-capture?text=…`. Any shortcut 
 
 ## Appearance
 
-By default Planfold follows your theme. In **Settings → Planfold → Home** you can switch to the *Fourfold* look, which also restyles sidebars, tabs and the file list. Pinned and Recent shortcuts at the top of the file explorer can be turned on in the same place.
+By default Planfold follows your theme. In **Settings → Planfold → Home** you can switch to the *Planfold design*, which also restyles sidebars, tabs and the file list. Setup asks which look you want the first time. Pinned and Recent shortcuts at the top of the file explorer can be turned on in the same place.
 
 ## Languages
 

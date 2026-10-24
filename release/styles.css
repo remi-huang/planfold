@@ -2094,3 +2094,60 @@ body.is-mobile .planfold-capture-modal {
 /* each day of the week (each week of the month, each month of the year) can take a to-do directly */
 .planfold-root .planfold-part-add { opacity: .7; }
 .planfold-root .planfold-part-add:hover, .planfold-root .planfold-part-add:focus-within { opacity: 1; }
+
+/* ---------- 1.0.8: setup asks for the look ---------- */
+.planfold-ob-check { display: flex; gap: var(--t-space-3); align-items: center; margin-top: var(--t-space-2); cursor: pointer; color: var(--text-normal); }
+.planfold-ob-check input { margin: 0; }
+
+/* ---------- 1.0.8: settings laid out like macOS System Settings ---------- */
+/* Section title above a rounded group; rows inside the group share one surface and are
+   separated by a hairline that starts at the text, not at the edge. Label left, control right. */
+.planfold-settings .planfold-set-sub {
+  margin: var(--t-space-6) 0 var(--t-space-2) !important;
+  padding: 0 !important;
+  font-size: var(--t-type-body);
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-normal);
+}
+.planfold-settings .planfold-set-body > .planfold-set-sub:first-child { margin-top: 0 !important; }
+.planfold-settings .planfold-set-intro {
+  margin: 0 0 var(--t-space-3);
+  font-size: var(--t-type-caption);
+  line-height: var(--t-leading-small);
+  color: var(--text-muted);
+}
+.planfold-settings .planfold-set-group {
+  margin: 0 0 var(--t-space-2);
+  overflow: hidden;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--t-radius);
+  background: var(--background-secondary);
+}
+.planfold-settings .planfold-set-group > .setting-item {
+  position: relative;
+  min-height: var(--t-touch);
+  padding: var(--t-space-3) var(--t-space-4) !important;
+  border: 0 !important;
+  background: transparent;
+}
+.planfold-settings .planfold-set-group > .setting-item + .setting-item::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: var(--t-space-4);
+  height: 1px;
+  background: var(--background-modifier-border);
+}
+.planfold-settings .planfold-set-group .setting-item-name { font-size: var(--t-type-body); font-weight: 400; }
+.planfold-settings .planfold-set-group .setting-item-description { margin-top: var(--t-space-1); font-size: var(--t-type-caption); color: var(--text-muted); }
+.planfold-settings .planfold-set-group + .planfold-set-intro { margin-top: var(--t-space-2); }
+
+/* ---------- 1.0.8: "Follow my theme" cards get an outline ---------- */
+/* Many themes give the page and the cards the same colour; a hairline keeps each card readable. */
+.planfold-root:not(.planfold-palette-ff) .planfold-ff-card:not(.is-flat):not(.planfold-nowbar):not(.planfold-ff-now),
+.planfold-root:not(.planfold-palette-ff) .planfold-home-capture.is-light {
+  border: 1px solid var(--background-modifier-border) !important;
+}

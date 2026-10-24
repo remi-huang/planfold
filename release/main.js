@@ -2585,9 +2585,18 @@ class OnboardingModal extends Modal {
     this.ex = plugin.existingDaily();
     this.where = this.ex.count > 0 && this.ex.enabled ? "keep" : "new";
     this.picked = null;
+    this.before = { look: plugin.settings.homePalette, shortcuts: plugin.settings.explorerShortcuts };
+    this.look = "fourfold"; this.shortcuts = true; // recommended: the Planfold design, with Pinned and Recent
+  }
+  /** Show the chosen look right away, behind the dialog */
+  preview() {
+    const p = this.plugin, S = p.settings;
+    S.homePalette = this.look; S.explorerShortcuts = this.shortcuts;
+    p.applyLook(); p.mountExplorer(); p.refreshAll();
   }
   async onOpen() {
     this.modalEl.addClass("planfold-modal", "planfold-onboarding");
+    this.preview();
     await this.plugin.goals();
     this.picked = new Set((this.plugin.goalsCache || []).filter((g) => g.active).map((g) => g.name));
     this.draw();
@@ -2597,7 +2606,7 @@ class OnboardingModal extends Modal {
     const c = this.contentEl;
     c.empty();
     const steps = h(c, "div", "planfold-ob-steps");
-    for (let i = 0; i < 3; i++) h(steps, "span", "planfold-ob-step" + (i <= this.step ? " is-on" : ""));
+    for (let i = 0; i < 4; i++) h(steps, "span", "planfold-ob-step" + (i <= this.step ? " is-on" : ""));
     if (this.step === 0) {
       h(c, "h2", "planfold-h2", "Welcome to Planfold · 欢迎使用 Planfold");
       h(c, "p", "planfold-muted", "Choose a language · 选择语言");
@@ -2607,6 +2616,16 @@ class OnboardingModal extends Modal {
         b.addEventListener("click", () => { this.lang = k; this.draw(); });
       }
     } else if (this.step === 1) {
+      h(c, "h2", "planfold-h2", L("How should Planfold look?", "Planfold 用什么样的外观？"));
+      h(c, "p", "planfold-muted", L("You can change this any time in Settings → Planfold → Home.", "之后随时可以在「设置 → Planfold → 主页」里修改。"));
+      const opts = h(c, "div", "planfold-ob-cards");
+      this.option(opts, "fourfold", L("Planfold design (recommended)", "Planfold 设计（推荐）"), L("Soft sage colours, mono type and rounded cards — for Planfold and the rest of Obsidian (sidebars, tabs, file list).", "柔和的灰青配色、等宽字体和圆角卡片，Planfold 和整个 Obsidian（侧栏、标签栏、文件列表）一起换。"), "look");
+      this.option(opts, "theme", L("Follow my theme", "跟随我的主题"), L("Your theme's colours and accent. Nothing outside Planfold changes.", "用你主题的颜色和强调色，Planfold 以外的界面都不改。"), "look");
+      const sw = h(c, "label", "planfold-ob-check");
+      const cb = h(sw, "input"); cb.type = "checkbox"; cb.checked = this.shortcuts;
+      h(sw, "span", "", L("Show Pinned and Recent notes at the top of the file explorer", "在文件栏顶部显示「置顶」和「最近」笔记"));
+      cb.addEventListener("change", () => { this.shortcuts = cb.checked; this.preview(); });
+    } else if (this.step === 2) {
       h(c, "p", "planfold-muted", L("Planfold helps you plan each day, build habits, and look back regularly.", "Planfold 帮你做每日计划、养成习惯，并定期回顾总结。"));
       h(c, "h2", "planfold-h2", L("Where should your daily notes go?", "每天的日记要存在哪里？"));
       h(c, "p", "planfold-muted", L("Planfold makes one note per day for that day's plan and reflection.", "Planfold 每天会建一篇日记，用来写当天的计划和复盘。"));
@@ -2630,16 +2649,16 @@ class OnboardingModal extends Modal {
     const foot = h(c, "div", "planfold-ob-foot");
     if (this.step > 0) button(foot, L("Back", "上一步"), "", () => { this.step--; this.draw(); });
     h(foot, "span", "planfold-grow");
-    if (this.step === 2) button(foot, L("Skip", "跳过"), "planfold-link", () => this.finish(true));
-    button(foot, this.step === 2 ? L("Start using Planfold", "开始使用") : L("Next", "下一步"), "is-primary", () => { if (this.step < 2) { this.step++; this.draw(); } else this.finish(false); });
+    if (this.step === 3) button(foot, L("Skip", "跳过"), "planfold-link", () => this.finish(true));
+    button(foot, this.step === 3 ? L("Start using Planfold", "开始使用") : L("Next", "下一步"), "is-primary", () => { if (this.step < 3) { this.step++; this.draw(); } else this.finish(false); });
   }
-  option(parent, key, title, sub) {
-    const b = h(parent, "button", "planfold-ob-option" + (this.where === key ? " is-on" : "")); b.type = "button";
+  option(parent, key, title, sub, field = "where") {
+    const b = h(parent, "button", "planfold-ob-option" + (this[field] === key ? " is-on" : "")); b.type = "button";
     h(b, "span", "planfold-ob-radio");
     const t = h(b, "span", "planfold-ob-option-text");
     h(t, "strong", "", title);
     h(t, "span", "planfold-muted", sub);
-    b.addEventListener("click", () => { this.where = key; this.draw(); });
+    b.addEventListener("click", () => { this[field] = key; if (field === "look") this.preview(); this.draw(); });
   }
   async finish(skipHabits) {
     const p = this.plugin, S = p.settings;
@@ -2656,12 +2675,18 @@ class OnboardingModal extends Modal {
       const same = list.length === old.length && list.every((g, i) => g.active === old[i].active);
       if (!same) await p.saveGoals(list);
     }
+    S.homePalette = this.look; S.explorerShortcuts = this.shortcuts;
     S.setupDone = true;
     await p.saveSettings();
     this.close();
     p.refreshAll();
   }
-  onClose() { this.contentEl.empty(); LANG = this.plugin.settings.language || guessLang(); }
+  onClose() {
+    this.contentEl.empty();
+    const p = this.plugin, S = p.settings;
+    if (!S.setupDone) { S.homePalette = this.before.look; S.explorerShortcuts = this.before.shortcuts; p.applyLook(); p.mountExplorer(); p.refreshAll(); } // closed half-way: put the look back
+    LANG = S.language || guessLang();
+  }
 }
 
 class ProjectsModal extends Modal {
@@ -2721,6 +2746,17 @@ class ProjectsModal extends Modal {
 /* =====================================================================
    Settings → Planfold
    ===================================================================== */
+/** Settings read like the system settings on a Mac: consecutive rows sit together in one rounded group,
+    with a hairline between them and the section title above the group. */
+function groupRows(container) {
+  let group = null;
+  for (const el of [...container.children]) {
+    if (el.classList.contains("setting-item")) {
+      if (!group) { group = document.createElement("div"); group.className = "planfold-set-group"; el.before(group); }
+      group.appendChild(el);
+    } else group = null;
+  }
+}
 class PlanfoldSettingTab extends PluginSettingTab {
   constructor(app, plugin) { super(app, plugin); this.plugin = plugin; this.page = "notes"; }
   display() {
@@ -2745,6 +2781,7 @@ class PlanfoldSettingTab extends PluginSettingTab {
     }
     const body = h(c, "div", "planfold-set-body");
     this["page_" + this.page](body);
+    groupRows(body);
   }
   save(redraw) { return this.plugin.saveSettings().then(() => { this.plugin.refreshAll(); if (redraw) this.display(); }); }
   sub(el, t) { h(el, "h3", "planfold-set-sub", t); }
@@ -2834,6 +2871,7 @@ class PlanfoldSettingTab extends PluginSettingTab {
         t.inputEl.addEventListener("keydown", async (e) => { if (e.key === "Enter" && t.getValue().trim()) { list.push({ name: t.getValue().trim(), period: "weekly", target: 7, unit: "days", active: true }); await commit(); this.display(); } });
       }).setName(L("Add habit", "添加习惯")).setDesc(L("Type and press Enter.", "输入后按回车。"));
       addHabit.settingEl.addClass("planfold-habit-add");
+      groupRows(box);
       const arch = list.filter((g) => !g.active);
       if (arch.length) {
         this.sub(box, L("Archived", "已归档"));
@@ -2842,6 +2880,7 @@ class PlanfoldSettingTab extends PluginSettingTab {
           const s = new obsidian.Setting(box).setName(g.name).addButton((b) => b.setButtonText(L("Restore", "恢复")).onClick(async () => { g.active = true; await commit(); this.display(); }));
           s.settingEl.addClass("planfold-habit-archived");
         });
+        groupRows(box);
       }
     };
     draw();
@@ -2863,20 +2902,21 @@ class PlanfoldSettingTab extends PluginSettingTab {
         .addExtraButton((b) => b.setIcon("arrow-up").setDisabled(i === 0).onClick(() => { if (!i) return; S.tabOrder.splice(i - 1, 0, S.tabOrder.splice(i, 1)[0]); this.save(true); }))
         .addExtraButton((b) => b.setIcon("arrow-down").setDisabled(i === S.tabOrder.length - 1).onClick(() => { if (i === S.tabOrder.length - 1) return; S.tabOrder.splice(i + 1, 0, S.tabOrder.splice(i, 1)[0]); this.save(true); }));
     });
+    this.sub(el, L("General", "通用"));
     this.row(el, L("Open Planfold when Obsidian starts", "启动 Obsidian 时打开 Planfold")).addToggle((t) => t.setValue(S.openOnStartup).onChange((v) => { S.openOnStartup = v; this.save(); }));
     this.row(el, L("Your name", "你的名字"), L("Shown in the greeting.", "显示在问候语里。")).addText((t) => t.setValue(S.displayName).onChange((v) => { S.displayName = v.trim(); this.save(); }));
     this.sub(el, L("Home layout", "主页布局"));
     this.intro(el, L("The default keeps today in focus. Reorder cards, change their width, or hide what you don't need.", "默认布局把今天放在中心。你可以调整板块顺序、宽度，或隐藏不需要的内容。"));
     this.row(el, L("Customize Home", "自定义主页"), L("Arrange the real cards directly on Home.", "直接在主页上排列真实板块。"))
       .addButton((b) => b.setButtonText(L("Customize", "开始排列")).onClick(async () => { const v = await p.openView("home"); if (v instanceof PlanfoldView) { v.home.customizing = true; v.render(); } }));
-    this.row(el, L("Default layout", "默认布局"), L("To-do on the left; Habits and Quick note are separate cards on the right. Time and mood stay in the top bar; the full calendar lives in Obsidian's right sidebar.", "待办在左；习惯和随手记是右侧两张独立卡片。时间和心情保留在顶部，完整日历位于 Obsidian 右侧边栏。"))
+    this.row(el, L("Default layout", "默认布局"), (PRO ? L("To-do on the left; Habits and Quick note are separate cards on the right. Time and mood stay in the top bar; the full calendar lives in Obsidian's right sidebar.", "待办在左；习惯和随手记是右侧两张独立卡片。时间和心情保留在顶部，完整日历位于 Obsidian 右侧边栏。") : L("To-do on the left; Habits and Quick note are separate cards on the right. Time and mood stay in the top bar.", "待办在左；习惯和随手记是右侧两张独立卡片。时间和心情保留在顶部。")))
       .addButton((b) => b.setButtonText(L("Reset", "恢复默认")).onClick(async () => { S.homeLayout = defaultHomeLayout(); S.homeLayoutVersion = HOME_LAYOUT_VERSION; await this.save(true); }));
     this.sub(el, L("File explorer", "文件栏"));
     this.row(el, L("Pinned and Recent in the file explorer", "在文件栏顶部显示置顶和最近"), L("Right-click any note → Pin. Recent lists what you opened on this device.", "在任意笔记上右键 →「置顶」。「最近」是这台设备上打开过的笔记。"))
       .addToggle((t) => t.setValue(S.explorerShortcuts !== false).onChange(async (v) => { S.explorerShortcuts = v; await this.save(); p.mountExplorer(); }));
     this.sub(el, L("Appearance", "外观"));
-    this.row(el, L("Colours", "配色"), L("Fourfold: the sage palette, mono type and rounded shapes of the design, for Home and the rest of Obsidian (sidebars, tabs, file list). Follow my theme: your theme's colours and accent, nothing outside Planfold changes.", "Fourfold：设计稿里的灰青配色、等宽字体和圆角，主页和整个 Obsidian（侧栏、标签栏、文件列表）一起换。跟随主题：用你主题的颜色和强调色，Planfold 以外的界面都不改。"))
-      .addDropdown((d) => d.addOption("fourfold", "Fourfold").addOption("theme", L("Follow my theme", "跟随主题")).setValue(S.homePalette || "theme").onChange(async (v) => { S.homePalette = v; await this.save(); p.applyLook(); }));
+    this.row(el, L("Colours", "配色"), L("Planfold design: soft sage colours, mono type and rounded cards, for Planfold and the rest of Obsidian (sidebars, tabs, file list). Follow my theme: your theme's colours and accent, nothing outside Planfold changes.", "Planfold 设计：柔和的灰青配色、等宽字体和圆角卡片，Planfold 和整个 Obsidian（侧栏、标签栏、文件列表）一起换。跟随主题：用你主题的颜色和强调色，Planfold 以外的界面都不改。"))
+      .addDropdown((d) => d.addOption("fourfold", L("Planfold design", "Planfold 设计")).addOption("theme", L("Follow my theme", "跟随主题")).setValue(S.homePalette || "theme").onChange(async (v) => { S.homePalette = v; await this.save(); p.applyLook(); }));
   }
 
   page_general(el) {
@@ -3053,7 +3093,7 @@ Object.assign(PlanfoldPlugin.prototype, {
     this.refreshExplorer();
   },
 
-  /** One appearance for all of Obsidian: with Home colours = Fourfold (the default) the sidebars, tabs and file rows
+  /** One appearance for all of Obsidian: with Colours = Planfold design the sidebars, tabs and file rows
       take the same sage palette, mono type and rounded shapes as Home. "Follow my theme" turns all of it off. */
   applyLook() { document.body.toggleClass("planfold-look", this.settings.homePalette !== "theme"); },
 });
