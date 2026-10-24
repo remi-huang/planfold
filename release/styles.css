@@ -1944,7 +1944,10 @@ body.planfold-look .workspace-ribbon .clickable-icon:hover { opacity: 1; backgro
 /* Fourfold already gives the left dock its own rounded frame. Obsidian's titlebar
    toggle sits outside that frame and reads as a stray square at the top-left. */
 body.planfold-look .sidebar-toggle-button.mod-left {
-  display: none !important;
+  /* 1.0.11: shown again (collapsing the file explorer is a basic need). Since RC13 the ribbon shares the
+     sidebar colour, so a transparent button no longer leaves a block of a different colour. */
+  background-color: transparent !important;
+  box-shadow: none !important;
 }
 
 /* ---------- RC13: the left ribbon belongs to the sidebar surface ---------- */
