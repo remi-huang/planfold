@@ -2154,3 +2154,16 @@ body.is-mobile .planfold-capture-modal {
 .planfold-ob-pick { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: var(--t-space-2); padding: 0 0 var(--t-space-2); }
 .planfold-ob-pick input { box-sizing: border-box; width: 100%; min-width: 0; }
 .planfold-ob-pick .planfold-muted { grid-column: 1 / -1; font-size: var(--t-type-caption); }
+
+/* ---------- 1.0.10: setup step for the daily-note sections ---------- */
+.planfold-ob-sections { display: flex; flex-direction: column; gap: var(--t-space-2); margin: var(--t-space-4) 0 var(--t-space-2); }
+.planfold-ob-section { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) auto; gap: var(--t-space-2); align-items: center; }
+.planfold-ob-section input { box-sizing: border-box; width: 100%; min-width: 0; }
+.planfold-ob-section .is-hint { color: var(--text-muted); }
+.planfold-ob-section-actions { display: flex; gap: var(--t-space-4); margin-bottom: var(--t-space-2); }
+
+/* ---------- 1.0.10: week / month / year parts — the label and every row share one centre line ---------- */
+.planfold-root .planfold-part-label { padding: var(--t-space-2) 0 0 !important; min-height: 30px; box-sizing: content-box; align-items: center; }
+.planfold-root .planfold-part-list .planfold-todo { min-height: 30px; }
+.planfold-root .planfold-part-list .planfold-part-add { margin-top: 0 !important; padding-block: 0 !important; min-height: 30px; }
+.planfold-root .planfold-part-list .planfold-part-add .planfold-add-input:not(:focus) { min-height: 30px; padding-block: 0 !important; }

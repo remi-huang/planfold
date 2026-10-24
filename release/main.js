@@ -2646,7 +2646,7 @@ class OnboardingModal extends Modal {
     const c = this.contentEl;
     c.empty();
     const steps = h(c, "div", "planfold-ob-steps");
-    for (let i = 0; i < 4; i++) h(steps, "span", "planfold-ob-step" + (i <= this.step ? " is-on" : ""));
+    for (let i = 0; i < 5; i++) h(steps, "span", "planfold-ob-step" + (i <= this.step ? " is-on" : ""));
     if (this.step === 0) {
       h(c, "h2", "planfold-h2", "Welcome to Planfold · 欢迎使用 Planfold");
       h(c, "p", "planfold-muted", "Choose a language · 选择语言");
@@ -2692,6 +2692,28 @@ class OnboardingModal extends Modal {
       }
       const tf = this.plugin.settings.migratedFrom ? this.plugin.dir() : "Planfold";
       this.option(opts, "new", L(`Create a new ${tf}/ folder`, `新建一个 ${tf}/ 文件夹`), L(`Daily notes go in ${tf}/Daily, named like ${moment().format(DKEY)}.`, `日记放在 ${tf}/Daily，文件名像 ${moment().format(DKEY)}。`));
+    } else if (this.step === 3) {
+      // the writing sections of every daily note: start from the defaults, keep them or make them yours
+      if (!this.dayTpl || this.dayTplLang !== this.lang) {
+        const S = this.plugin.settings, base = S.templatesEdited && S.templates && S.templates.day ? S.templates.day : defaultTemplates(this.lang).day;
+        this.dayTpl = base.map((f) => Object.assign({}, f, { prev: [...(f.prev || [])] })); this.dayTplLang = this.lang;
+      }
+      h(c, "h2", "planfold-h2", L("What do you want to write each day?", "每天的日记想写些什么？"));
+      h(c, "p", "planfold-muted", L("These are the sections of every daily note. Use them as they are, rename, remove or add your own. You can change them any time in Settings → Writing → Templates.", "这些是每篇日记里的段落。可以直接用，也可以改名、删掉或者加上自己的。之后随时可以在「设置 → 写作 → 模板」里修改。"));
+      const list = h(c, "div", "planfold-ob-sections");
+      this.dayTpl.forEach((f, i) => {
+        const row = h(list, "div", "planfold-ob-section");
+        const name = h(row, "input", "planfold-input"); name.value = f.label; name.placeholder = L("Section name", "段落名称");
+        name.addEventListener("input", () => { const v = name.value.trim(); if (v && v !== f.label) { if (f._orig == null) f._orig = f.label; f.label = v; this.tplEdited = true; } });
+        const hint = h(row, "input", "planfold-input is-hint"); hint.value = f.hint || ""; hint.placeholder = L("Hint (optional)", "提示文字（可选）");
+        hint.addEventListener("input", () => { f.hint = hint.value; this.tplEdited = true; });
+        const del = h(row, "button", "planfold-icon-btn"); del.type = "button"; del.setAttr("aria-label", L("Remove", "删除"));
+        try { setIcon(del, "x"); } catch (e) { del.setText("×"); }
+        del.addEventListener("click", () => { this.dayTpl.splice(i, 1); this.tplEdited = true; this.draw(); });
+      });
+      const more = h(c, "div", "planfold-ob-section-actions");
+      button(more, L("+ Add a section", "+ 添加段落"), "planfold-link", () => { this.dayTpl.push({ id: "f" + Date.now().toString(36), label: L("New section", "新段落"), hint: "", prev: [] }); this.tplEdited = true; this.draw(); });
+      if (this.tplEdited) button(more, L("Back to the defaults", "恢复默认"), "planfold-link", () => { this.dayTpl = null; this.tplEdited = false; this.draw(); });
     } else {
       h(c, "h2", "planfold-h2", L("Pick a few habits", "选几个想坚持的习惯"));
       h(c, "p", "planfold-muted", L("They show up in every daily note as a checkbox. You can change them any time.", "它们会以勾选框出现在每天的日记里，随时可以修改。"));
@@ -2707,8 +2729,8 @@ class OnboardingModal extends Modal {
     const foot = h(c, "div", "planfold-ob-foot");
     if (this.step > 0) button(foot, L("Back", "上一步"), "", () => { this.step--; this.draw(); });
     h(foot, "span", "planfold-grow");
-    if (this.step === 3) button(foot, L("Skip", "跳过"), "planfold-link", () => this.finish(true));
-    button(foot, this.step === 3 ? L("Start using Planfold", "开始使用") : L("Next", "下一步"), "is-primary", () => { if (this.step < 3) { this.step++; this.draw(); } else this.finish(false); });
+    if (this.step === 4) button(foot, L("Skip", "跳过"), "planfold-link", () => this.finish(true));
+    button(foot, this.step === 4 ? L("Start using Planfold", "开始使用") : L("Next", "下一步"), "is-primary", () => { if (this.step < 4) { this.step++; this.draw(); } else this.finish(false); });
   }
   option(parent, key, title, sub, field = "where") {
     const b = h(parent, "button", "planfold-ob-option" + (this[field] === key ? " is-on" : "")); b.type = "button";
@@ -2723,6 +2745,11 @@ class OnboardingModal extends Modal {
     const langChanged = S.language !== this.lang;
     S.language = this.lang; LANG = this.lang;
     if (!S.templatesEdited && (langChanged || !S.templates)) S.templates = defaultTemplates(this.lang);
+    if (this.dayTpl && this.tplEdited) {
+      // a renamed section remembers its old name once, so notes already written under it are still found
+      S.templates.day = this.dayTpl.filter((f) => f.label.trim()).map(({ _orig, ...f }) => Object.assign(f, { prev: _orig && _orig !== f.label ? [...new Set([...(f.prev || []), _orig])] : f.prev || [] }));
+      S.templatesEdited = true;
+    }
     if (!S.migratedFrom) S.folder = "Planfold";
     const src = this.where.startsWith("src") ? this.sources[+this.where.slice(3)] : null;
     if (src && src.source === "custom") { S.dailySource = "custom"; S.dailyFolder = src.folder; S.dailyFormat = src.format; }
