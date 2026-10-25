@@ -11,6 +11,19 @@ const VIEW_TYPE = "planfold-main-view";
 const CAL_VIEW_TYPE = "planfold-calendar";
 const WEEK_VIEW_TYPE = "planfold-week";
 
+/* ---------- update emails (opt-in) ---------- */
+/** The sign-up form that update emails go out from. People only reach it by typing their address and pressing
+    Subscribe — Planfold sends nothing else over the network. Form-encoded POST with one field, "email". */
+const SUBSCRIBE_URL = "https://buttondown.com/api/emails/embed-subscribe/remirx";
+const isEmail = (s) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || "").trim());
+async function subscribeEmail(email) {
+  if (!SUBSCRIBE_URL) return true; // not wired to a list yet: keep the address on this device only
+  try {
+    const r = await obsidian.requestUrl({ url: SUBSCRIBE_URL, method: "POST", contentType: "application/x-www-form-urlencoded", body: "email=" + encodeURIComponent(email.trim()), throw: false });
+    return r.status >= 200 && r.status < 400;
+  } catch (e) { return false; }
+}
+
 /* ---------- language ---------- */
 let LANG = "en";
 const L = (en, zh) => (LANG === "zh" && zh != null ? zh : en);
@@ -43,13 +56,13 @@ const MOOD_KEY = "mood";
 /* ---------- templates ---------- */
 const TPL_DEFAULT = {
   en: {
-    day: [["main", "Main thing", "The one thing that mattered today"], ["joy", "A small joy", "Even a tiny one"], ["better", "Do better tomorrow", "Just one thing"], ["free", "Free write", "Write whatever comes to mind"]],
+    day: [["main", "The most important thing", "Just one", ["Main thing"]], ["joy", "One thing I'm grateful for", "Even a tiny one", ["A small joy"]]],
     week: [["goal", "Goal", "What matters most this week?", ["Try next week", "🧪 Try next week"]], ["review", "Review", "What happened, and what will you carry forward?", ["Keep", "Problems", "✅ Keep", "⚠️ Problems"]]],
     month: [["goal", "Goal", "What matters most this month?", ["Next month"]], ["review", "Review", "What happened, and what pattern do you notice?", ["What worked", "What changed"]]],
     year: [["goal", "Goal", "What matters most this year?", ["Next year"]], ["review", "Review", "What defined this year, and what will you carry forward?", ["This year was about", "Proud of"]]],
   },
   zh: {
-    day: [["main", "今天最重要的事", "今天真正重要的一件事"], ["joy", "一件小确幸", "哪怕很小"], ["better", "明天可以更好", "只写一件"], ["free", "随手写", "想到什么写什么"]],
+    day: [["main", "最重要的一件事", "只写一件", ["今天最重要的事"]], ["joy", "一件感恩的事", "哪怕很小", ["一件小确幸"]]],
     week: [["goal", "目标", "这周最重要的是什么？", ["下周试试", "🧪 下周尝试"]], ["review", "回顾", "这周发生了什么，要带走什么？", ["保持", "问题", "✅ 保持", "⚠️ 问题"]]],
     month: [["goal", "目标", "这个月最重要的是什么？", ["下个月"]], ["review", "回顾", "这个月发生了什么，看到了什么模式？", ["做得好的", "有什么变化"]]],
     year: [["goal", "目标", "这一年最重要的是什么？", ["明年"]], ["review", "回顾", "什么定义了这一年，要带走什么？", ["这一年关于", "骄傲的事"]]],
@@ -82,7 +95,7 @@ const defaultLabels = (scope, id) => {
 const DEFAULTS = {
   language: "", setupDone: false, license: "",
   folder: "Planfold", dailySource: "obsidian", dailyFolder: "", dailyFormat: "YYYY-MM-DD",
-  quickCaptureField: "free", quickCaptureTimestamp: true,
+  quickCaptureField: "quick", updateEmail: "", quickCaptureTimestamp: true,
   weekFolder: "", weekFormat: "GGGG-[W]WW", monthFolder: "", monthFormat: "YYYY-MM", yearFolder: "", yearFormat: "YYYY",
   oldNotes: "ask", oldNoteSkip: [], templates: null, askMood: true,
   periodNoteTemplateVersion: 0, periodTemplateBackupV1: null,
@@ -466,7 +479,7 @@ class PlanfoldPlugin extends Plugin {
   todoLabel() { return L("To do", "待办"); }
   planfoldBlock(scope) {
     const out = [`## ${this.todoLabel()}`, ""];
-    for (const f of this.settings.templates[scope] || []) out.push(`## ${f.label}`, "");
+    for (const f of scope === "day" ? this.dayFields() : this.settings.templates[scope] || []) out.push(`## ${f.label}`, "");
     return out.join("\n");
   }
   async ensureFolder(path) {
@@ -528,7 +541,7 @@ class PlanfoldPlugin extends Plugin {
     const parsed = parseSections(text), fm = this.fm(file);
     const todo = this.findTodo(parsed);
     const fields = {}, found = {};
-    for (const f of this.settings.templates[scope] || []) {
+    for (const f of scope === "day" ? this.dayFields() : this.settings.templates[scope] || []) {
       const r = this.fieldValue(parsed, fm, scope, f);
       found[f.id] = !!r.sec;
       fields[f.id] = r.value;
@@ -618,7 +631,15 @@ class PlanfoldPlugin extends Plugin {
   }
   quickCaptureField() {
     const list = (this.settings.templates && this.settings.templates.day) || [];
-    return list.find((f) => f.id === this.settings.quickCaptureField) || list.find((f) => f.id === "free") || list[list.length - 1] || { id: "quick", label: L("Quick notes", "随手记"), hint: "", prev: [] };
+    // with no free-writing section in the template, captures get a "Quick notes" section of their own
+    // (never the last template section: that would put stray thoughts under "grateful for")
+    return list.find((f) => f.id === this.settings.quickCaptureField) || list.find((f) => f.id === "free") || { id: "quick", label: L("Notes", "随手记"), hint: L("Anything on your mind — quick capture lands here too", "想到什么写什么，快速记录也会存到这里"), prev: ["Notes", "Quick notes", "随手记"] };
+  }
+  /** A daily note's sections: the template, then always a free "Notes" section at the end (quick capture writes there),
+      unless the template already has the section quick capture uses. */
+  dayFields() {
+    const tpl = (this.settings.templates && this.settings.templates.day) || [], q = this.quickCaptureField();
+    return tpl.some((f) => f.id === q.id) ? tpl : [...tpl, q];
   }
   async appendQuickCapture(value) {
     const text = String(value || "").trim();
@@ -762,7 +783,7 @@ class PlanfoldPlugin extends Plugin {
     const used = new Set(list.map((g) => g.key).filter(Boolean));
     for (const g of list) if (!g.key) g.key = this.assignKey(g.name, used);
     const c = (s) => String(s == null ? "" : s).replace(/[|\n]/g, " ").trim();
-    const body = `---\ntype: planfold-habits\n---\n# Habits\n\nEdit these in Settings → Planfold → Habits, or right here. Check-ins are saved as properties in each daily note (property name = Key).\n\n| Goal | Every | Target | Unit | Key | Status |\n| --- | --- | --- | --- | --- | --- |\n` +
+    const body = `---\ntype: planfold-habits\n---\n# Habits\n\nEdit these in Settings → Planfold → Note templates, or right here. Check-ins are saved as properties in each daily note (property name = Key).\n\n| Goal | Every | Target | Unit | Key | Status |\n| --- | --- | --- | --- | --- | --- |\n` +
       list.map((g) => `| ${c(g.name)} | ${g.period || "weekly"} | ${Math.max(1, parseFloat(g.target) || 1)} | ${c(g.unit) || "days"} | ${c(g.key)} | ${g.active === false ? "off" : "on"} |`).join("\n") + "\n";
     const f = this.app.vault.getAbstractFileByPath(this.goalsPath());
     if (f instanceof TFile) await this.app.vault.process(f, () => body);
@@ -911,27 +932,28 @@ class PlanfoldPlugin extends Plugin {
     }
     return n;
   }
-  /** Daily notes the person already keeps, so setup can offer to keep using them exactly as they are:
-      Obsidian's Daily notes, Periodic Notes, or a folder of date-named notes Planfold finds on its own. */
-  dailySources() {
-    const out = [];
-    const dn = this.app.internalPlugins && this.app.internalPlugins.getPluginById && this.app.internalPlugins.getPluginById("daily-notes");
-    if (dn) {
-      const o = (dn.instance && dn.instance.options) || {}, folder = clean(o.folder), format = o.format || DKEY, count = this.countDaily(folder, format);
-      if (dn.enabled || count) out.push({ source: "obsidian", via: L("Obsidian Daily notes", "Obsidian「日记」插件"), folder, format, count });
-    }
+  /** The daily notes a person already keeps — Planfold uses them as they are, no question asked.
+      1. Periodic Notes, when its daily notes are on (it takes over "Open today's daily note")
+      2. Obsidian's Daily notes, when its folder actually holds daily notes
+      3. a folder with 3+ date-named notes (a habit without a plugin): folder and date format are copied
+      4. otherwise Obsidian's Daily notes settings (a new vault: the vault root), so Obsidian and Planfold
+         always open the same note for a day
+      source "periodic" / "obsidian" means Planfold keeps following that plugin if its settings change later. */
+  currentDaily() {
     const pd = this.periodicDaily();
-    if (pd && !out.some((s) => s.folder === pd.folder && s.format === pd.format)) out.push({ source: "periodic", via: "Periodic Notes", folder: pd.folder, format: pd.format, count: this.countDaily(pd.folder, pd.format) });
-    // no plugin, just a habit: the folder holding the most date-named notes
+    if (pd) return { source: "periodic", folder: pd.folder, format: pd.format, count: this.countDaily(pd.folder, pd.format) };
+    const dn = this.app.internalPlugins && this.app.internalPlugins.getPluginById && this.app.internalPlugins.getPluginById("daily-notes");
+    const o = (dn && dn.instance && dn.instance.options) || {}, core = { source: "obsidian", folder: clean(o.folder), format: o.format || DKEY };
+    core.count = this.countDaily(core.folder, core.format);
+    if (core.count) return core;
     const formats = [DKEY, "YYYY.MM.DD", "YYYYMMDD", "YYYY年MM月DD日", "YYYY年M月D日"], tally = new Map();
     for (const f of this.app.vault.getMarkdownFiles()) {
       const folder = f.parent && f.parent.path !== "/" ? f.parent.path : "";
       for (const fmt of formats) if (moment(f.basename, fmt, true).isValid()) { const k = folder + "\u0000" + fmt; tally.set(k, (tally.get(k) || 0) + 1); break; }
     }
     let best = null;
-    for (const [k, n] of tally) if (n >= 3 && (!best || n > best.count)) { const [folder, format] = k.split("\u0000"); best = { folder, format, count: n }; }
-    if (best && !out.some((s) => s.folder === best.folder && s.format === best.format)) out.push(Object.assign({ source: "custom", via: L("found in your vault", "在你的库里找到") }, best));
-    return out;
+    for (const [k, n] of tally) { const [folder, format] = k.split("\u0000"); if (n >= 3 && (!best || n > best.count)) best = { source: "custom", folder, format, count: n }; }
+    return best || core;
   }
   existingDaily() {
     const dn = this.app.internalPlugins && this.app.internalPlugins.getPluginById && this.app.internalPlugins.getPluginById("daily-notes");
@@ -2212,8 +2234,8 @@ Object.assign(PlanfoldView.prototype, {
     if (old) this.oldNoteBanner(np, note, scope);
     const content = h(np, "div", "planfold-note-content" + (old ? " is-dimmed" : ""));
     if (scope === "day") { this.moodRow(content, anchor); this.noteHabits(content, anchor); }
-    if (skipped) { h(content, "p", "planfold-muted planfold-note-skip", L("This note doesn't have Planfold sections. Change this in Settings → Planfold → Notes.", "这篇笔记没有 Planfold 段落。可以在 设置 → Planfold → 笔记 里修改。")); return; }
-    const tpl = p.settings.templates[scope] || [];
+    if (skipped) { h(content, "p", "planfold-muted planfold-note-skip", L("This note doesn't have Planfold sections. Change this in Settings → Planfold → Note paths.", "这篇笔记没有 Planfold 段落。可以在 设置 → Planfold → 笔记路径 里修改。")); return; }
+    const tpl = scope === "day" ? p.dayFields() : p.settings.templates[scope] || []; // a day always ends with its Notes section
     for (const f of tpl) this.fieldBox(content, scope, anchor, f, note.fields[f.id] || "");
     // week / month / year: sections already written in this note but not in the template still show (and stay editable)
     let written = 0;
@@ -2439,6 +2461,13 @@ Object.assign(PlanfoldView.prototype, {
 /* =====================================================================
    Onboarding, project picker, folder list
    ===================================================================== */
+/** Daily-note sections offered in setup, in the order they appear in a note. [id, label, hint] */
+const SECTION_SUGGEST = () => [
+  ["main", L("The most important thing", "最重要的一件事"), L("Just one", "只写一件")],
+  ["joy", L("One thing I'm grateful for", "一件感恩的事"), L("Even a tiny one", "哪怕很小")],
+  ["learn", L("Something I learned", "今天学到了什么"), ""],
+  ["better", L("Do better tomorrow", "明天可以更好"), L("Just one thing", "只写一件")],
+];
 const HABIT_SUGGEST = () => L("Read,Exercise,Sleep early,Meditate,Drink water,Write", "读书,运动,早睡,冥想,喝水,写作").split(",");
 
 class QuickCaptureModal extends Modal {
@@ -2620,10 +2649,13 @@ class OnboardingModal extends Modal {
     super(app);
     this.plugin = plugin;
     this.step = 0;
+    // the last step asks for an email for update notes; skipped when this person already signed up
+    this.last = plugin.settings.updateEmail ? 3 : 4;
+    this.email = "";
     this.lang = plugin.settings.language || guessLang();
-    this.sources = plugin.dailySources();
-    this.where = this.sources.length ? "src0" : "new"; // people who already keep daily notes keep them, as they are
-    this.pickFolder = ""; this.pickFormat = DKEY;
+    // where daily notes go is not a question: Planfold uses the daily notes the person already keeps (see currentDaily);
+    // re-running setup leaves the current choice alone
+    this.daily = plugin.settings.setupDone ? null : plugin.currentDaily();
     this.picked = null;
     this.before = { look: plugin.settings.homePalette, shortcuts: plugin.settings.explorerShortcuts };
     this.look = "fourfold"; this.shortcuts = true; // recommended: the Planfold design, with Pinned and Recent
@@ -2646,7 +2678,7 @@ class OnboardingModal extends Modal {
     const c = this.contentEl;
     c.empty();
     const steps = h(c, "div", "planfold-ob-steps");
-    for (let i = 0; i < 5; i++) h(steps, "span", "planfold-ob-step" + (i <= this.step ? " is-on" : ""));
+    for (let i = 0; i <= this.last; i++) h(steps, "span", "planfold-ob-step" + (i <= this.step ? " is-on" : ""));
     if (this.step === 0) {
       h(c, "h2", "planfold-h2", "Welcome to Planfold · 欢迎使用 Planfold");
       h(c, "p", "planfold-muted", "Choose a language · 选择语言");
@@ -2657,7 +2689,7 @@ class OnboardingModal extends Modal {
       }
     } else if (this.step === 1) {
       h(c, "h2", "planfold-h2", L("How should Planfold look?", "Planfold 用什么样的外观？"));
-      h(c, "p", "planfold-muted", L("You can change this any time in Settings → Planfold → Home.", "之后随时可以在「设置 → Planfold → 主页」里修改。"));
+      h(c, "p", "planfold-muted", L("You can change this any time in Settings → Planfold → Layout & look.", "之后随时可以在「设置 → Planfold → 布局与外观」里修改。"));
       const opts = h(c, "div", "planfold-ob-cards");
       this.option(opts, "fourfold", L("Planfold design (recommended)", "Planfold 设计（推荐）"), L("Soft sage colours, mono type and rounded cards — for Planfold and the rest of Obsidian (sidebars, tabs, file list).", "柔和的灰青配色、等宽字体和圆角卡片，Planfold 和整个 Obsidian（侧栏、标签栏、文件列表）一起换。"), "look");
       this.option(opts, "theme", L("Follow my theme", "跟随我的主题"), L("Your theme's colours and accent. Nothing outside Planfold changes.", "用你主题的颜色和强调色，Planfold 以外的界面都不改。"), "look");
@@ -2666,54 +2698,31 @@ class OnboardingModal extends Modal {
       h(sw, "span", "", L("Show Pinned and Recent notes at the top of the file explorer", "在文件栏顶部显示「置顶」和「最近」笔记"));
       cb.addEventListener("change", () => { this.shortcuts = cb.checked; this.preview(); });
     } else if (this.step === 2) {
-      h(c, "p", "planfold-muted", L("Planfold helps you plan each day, build habits, and look back regularly.", "Planfold 帮你做每日计划、养成习惯，并定期回顾总结。"));
-      h(c, "h2", "planfold-h2", L("Where should your daily notes go?", "每天的日记要存在哪里？"));
-      h(c, "p", "planfold-muted", L("Planfold makes one note per day for that day's plan and reflection.", "Planfold 每天会建一篇日记，用来写当天的计划和复盘。"));
-      const opts = h(c, "div", "planfold-ob-cards");
-      this.sources.forEach((s, i) => {
-        const where = s.folder ? `${s.folder}/` : L("the vault root", "库的根目录");
-        const title = L(`Keep using my daily notes in ${where}`, `继续用我现在的日记（${where}）`);
-        const found = s.count ? L(`${s.count} notes found, named like ${moment().format(s.format)}`, `找到 ${s.count} 篇，文件名像 ${moment().format(s.format)}`) : L(`Named like ${moment().format(s.format)}`, `文件名像 ${moment().format(s.format)}`);
-        const via = { obsidian: L("Obsidian Daily notes", "Obsidian「日记」插件"), periodic: "Periodic Notes", custom: L("found in your vault", "在你的库里找到") }[s.source];
-        this.option(opts, "src" + i, title, L(`${found} · ${via}. `, `${found} · ${via}。`) + L("Your folder, file names and template stay as they are. Planfold asks before adding anything to a note you already wrote.", "文件夹、文件名和模板都保持原样。已经写过的日记，Planfold 会先问你再加内容。"));
-      });
-      this.option(opts, "pick", L("Use another folder", "用我指定的文件夹"), L("Point Planfold at the folder and date format you already use.", "告诉 Planfold 你的日记在哪个文件夹、用什么日期格式命名。"));
-      if (this.where === "pick") {
-        const box = h(opts, "div", "planfold-ob-pick");
-        const folders = (this.app.vault.getAllLoadedFiles ? this.app.vault.getAllLoadedFiles() : []).filter((f) => f instanceof TFolder && f.path !== "/").map((f) => f.path).sort();
-        const dl = h(box, "datalist"); dl.id = "planfold-ob-folders"; folders.forEach((f) => { const o = h(dl, "option"); o.value = f; });
-        const fi = h(box, "input", "planfold-input"); fi.placeholder = L("Folder, e.g. Journal/Daily", "文件夹，例如 Journal/Daily"); fi.value = this.pickFolder; fi.setAttr("list", "planfold-ob-folders");
-        const fo = h(box, "input", "planfold-input"); fo.placeholder = DKEY; fo.value = this.pickFormat;
-        const ex = h(box, "span", "planfold-muted", "");
-        const show = () => { ex.setText(L(`Today: ${this.pickFolder ? this.pickFolder + "/" : ""}${moment().format(this.pickFormat || DKEY)}.md`, `今天：${this.pickFolder ? this.pickFolder + "/" : ""}${moment().format(this.pickFormat || DKEY)}.md`)); };
-        fi.addEventListener("input", () => { this.pickFolder = clean(fi.value); show(); });
-        fo.addEventListener("input", () => { this.pickFormat = fo.value.trim() || DKEY; show(); });
-        show();
+      // the sections of every daily note, picked like habits: two are on to start with
+      const S = this.plugin.settings;
+      if (!this.secPicked || this.secLang !== this.lang) {
+        const base = S.templatesEdited && S.templates && S.templates.day ? S.templates.day : defaultTemplates(this.lang).day;
+        this.secPicked = base.map((f) => f.label); this.secLang = this.lang;
       }
-      const tf = this.plugin.settings.migratedFrom ? this.plugin.dir() : "Planfold";
-      this.option(opts, "new", L(`Create a new ${tf}/ folder`, `新建一个 ${tf}/ 文件夹`), L(`Daily notes go in ${tf}/Daily, named like ${moment().format(DKEY)}.`, `日记放在 ${tf}/Daily，文件名像 ${moment().format(DKEY)}。`));
-    } else if (this.step === 3) {
-      // the writing sections of every daily note: start from the defaults, keep them or make them yours
-      if (!this.dayTpl || this.dayTplLang !== this.lang) {
-        const S = this.plugin.settings, base = S.templatesEdited && S.templates && S.templates.day ? S.templates.day : defaultTemplates(this.lang).day;
-        this.dayTpl = base.map((f) => Object.assign({}, f, { prev: [...(f.prev || [])] })); this.dayTplLang = this.lang;
+      h(c, "h2", "planfold-h2", L("Daily note template", "日记模板"));
+      h(c, "p", "planfold-muted", L("You can change this later in Settings.", "以后可以在设置里改。"));
+      const chips = h(c, "div", "planfold-chips");
+      const all = [...new Set([...SECTION_SUGGEST().map((x) => x[1]), ...this.secPicked])];
+      for (const name of all) {
+        const on = this.secPicked.includes(name);
+        const b = h(chips, "button", "planfold-chip" + (on ? " is-on" : ""), name); b.type = "button";
+        b.addEventListener("click", () => { this.secPicked = on ? this.secPicked.filter((x) => x !== name) : [...this.secPicked, name]; this.secEdited = true; this.draw(); });
       }
-      h(c, "h2", "planfold-h2", L("What do you want to write each day?", "每天的日记想写些什么？"));
-      h(c, "p", "planfold-muted", L("These are the sections of every daily note. Use them as they are, rename, remove or add your own. You can change them any time in Settings → Writing → Templates.", "这些是每篇日记里的段落。可以直接用，也可以改名、删掉或者加上自己的。之后随时可以在「设置 → 写作 → 模板」里修改。"));
-      const list = h(c, "div", "planfold-ob-sections");
-      this.dayTpl.forEach((f, i) => {
-        const row = h(list, "div", "planfold-ob-section");
-        const name = h(row, "input", "planfold-input"); name.value = f.label; name.placeholder = L("Section name", "段落名称");
-        name.addEventListener("input", () => { const v = name.value.trim(); if (v && v !== f.label) { if (f._orig == null) f._orig = f.label; f.label = v; this.tplEdited = true; } });
-        const hint = h(row, "input", "planfold-input is-hint"); hint.value = f.hint || ""; hint.placeholder = L("Hint (optional)", "提示文字（可选）");
-        hint.addEventListener("input", () => { f.hint = hint.value; this.tplEdited = true; });
-        const del = h(row, "button", "planfold-icon-btn"); del.type = "button"; del.setAttr("aria-label", L("Remove", "删除"));
-        try { setIcon(del, "x"); } catch (e) { del.setText("×"); }
-        del.addEventListener("click", () => { this.dayTpl.splice(i, 1); this.tplEdited = true; this.draw(); });
-      });
-      const more = h(c, "div", "planfold-ob-section-actions");
-      button(more, L("+ Add a section", "+ 添加段落"), "planfold-link", () => { this.dayTpl.push({ id: "f" + Date.now().toString(36), label: L("New section", "新段落"), hint: "", prev: [] }); this.tplEdited = true; this.draw(); });
-      if (this.tplEdited) button(more, L("Back to the defaults", "恢复默认"), "planfold-link", () => { this.dayTpl = null; this.tplEdited = false; this.draw(); });
+      const inp = addInput(c, L("Add your own…", "自己添加…"), (v) => { if (!this.secPicked.includes(v)) this.secPicked = [...this.secPicked, v]; this.secEdited = true; this.draw(); });
+      inp.addClass("planfold-input");
+    } else if (this.step === 4) {
+      h(c, "h2", "planfold-h2", L("Tell me when Planfold updates", "插件更新时提醒我"));
+      const inp = h(c, "input", "planfold-ob-field planfold-ob-email");
+      inp.type = "email"; inp.placeholder = L("you@example.com", "你的邮箱"); inp.value = this.email;
+      inp.addEventListener("input", () => { this.email = inp.value; err.setText(""); });
+      inp.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) this.submitEmail(err); });
+      const err = h(c, "p", "planfold-ob-note planfold-ob-error", "");
+      window.setTimeout(() => inp.focus(), 0);
     } else {
       h(c, "h2", "planfold-h2", L("Pick a few habits", "选几个想坚持的习惯"));
       h(c, "p", "planfold-muted", L("They show up in every daily note as a checkbox. You can change them any time.", "它们会以勾选框出现在每天的日记里，随时可以修改。"));
@@ -2729,8 +2738,17 @@ class OnboardingModal extends Modal {
     const foot = h(c, "div", "planfold-ob-foot");
     if (this.step > 0) button(foot, L("Back", "上一步"), "", () => { this.step--; this.draw(); });
     h(foot, "span", "planfold-grow");
-    if (this.step === 4) button(foot, L("Skip", "跳过"), "planfold-link", () => this.finish(true));
-    button(foot, this.step === 4 ? L("Start using Planfold", "开始使用") : L("Next", "下一步"), "is-primary", () => { if (this.step < 4) { this.step++; this.draw(); } else this.finish(false); });
+    const next = () => { if (this.step < this.last) { this.step++; this.draw(); } else this.finish(); };
+    if (this.step === 3) button(foot, L("Skip", "跳过"), "planfold-link", () => { this.skipHabits = true; next(); });
+    if (this.step === 4) button(foot, L("Skip", "跳过"), "planfold-link", () => { this.email = ""; this.finish(); });
+    if (this.step === 3) button(foot, this.step === this.last ? L("Start using Planfold", "开始使用") : L("Next", "下一步"), "is-primary", () => { this.skipHabits = false; next(); });
+    else if (this.step === 4) button(foot, L("Done", "完成"), "is-primary", () => this.submitEmail(this.contentEl.querySelector(".planfold-ob-error")));
+    else button(foot, L("Next", "下一步"), "is-primary", next);
+  }
+  submitEmail(err) {
+    if (!this.email.trim()) { this.finish(); return; }
+    if (!isEmail(this.email)) { if (err) err.setText(L("That doesn't look like an email address.", "邮箱格式好像不对。")); return; }
+    this.finish();
   }
   option(parent, key, title, sub, field = "where") {
     const b = h(parent, "button", "planfold-ob-option" + (this[field] === key ? " is-on" : "")); b.type = "button";
@@ -2740,22 +2758,32 @@ class OnboardingModal extends Modal {
     h(t, "span", "planfold-muted", sub);
     b.addEventListener("click", () => { this[field] = key; if (field === "look") this.preview(); this.draw(); });
   }
-  async finish(skipHabits) {
+  async finish() {
+    if (this.finishing) return; this.finishing = true;
+    const skipHabits = !!this.skipHabits;
     const p = this.plugin, S = p.settings;
+    const email = this.step === 4 && isEmail(this.email) ? this.email.trim() : "";
+    if (email) {
+      if (await subscribeEmail(email)) { S.updateEmail = email; this.confirmFor = email; }
+      else new Notice(L("Couldn't subscribe right now. You can try again in Settings → Planfold → System.", "暂时没订阅成功，可以稍后在「设置 → Planfold → 系统」里再试。"));
+    }
     const langChanged = S.language !== this.lang;
     S.language = this.lang; LANG = this.lang;
     if (!S.templatesEdited && (langChanged || !S.templates)) S.templates = defaultTemplates(this.lang);
-    if (this.dayTpl && this.tplEdited) {
-      // a renamed section remembers its old name once, so notes already written under it are still found
-      S.templates.day = this.dayTpl.filter((f) => f.label.trim()).map(({ _orig, ...f }) => Object.assign(f, { prev: _orig && _orig !== f.label ? [...new Set([...(f.prev || []), _orig])] : f.prev || [] }));
+    if (this.secPicked && this.secEdited) {
+      const sugg = SECTION_SUGGEST(), base = (S.templates && S.templates.day) || [];
+      const order = (name) => { const i = sugg.findIndex((x) => x[1] === name); return i < 0 ? sugg.length + this.secPicked.indexOf(name) : i; };
+      S.templates.day = [...this.secPicked].sort((x, y) => order(x) - order(y)).map((name) => {
+        const had = base.find((f) => f.label === name); if (had) return had;
+        const sg = sugg.find((x) => x[1] === name);
+        return sg ? { id: sg[0], label: name, hint: sg[2], prev: [] } : { id: "f" + Math.random().toString(36).slice(2, 8), label: name, hint: "", prev: [] };
+      });
       S.templatesEdited = true;
     }
     if (!S.migratedFrom) S.folder = "Planfold";
-    const src = this.where.startsWith("src") ? this.sources[+this.where.slice(3)] : null;
-    if (src && src.source === "custom") { S.dailySource = "custom"; S.dailyFolder = src.folder; S.dailyFormat = src.format; }
-    else if (src) S.dailySource = src.source; // follow Obsidian Daily notes / Periodic Notes, whatever they say later
-    else if (this.where === "pick") { S.dailySource = "custom"; S.dailyFolder = this.pickFolder; S.dailyFormat = this.pickFormat || DKEY; }
-    else { S.dailySource = "custom"; S.dailyFolder = `${p.dir()}/Daily`; S.dailyFormat = DKEY; }
+    const d = this.daily;
+    if (d && d.source === "custom") { S.dailySource = "custom"; S.dailyFolder = d.folder; S.dailyFormat = d.format; }
+    else if (d) S.dailySource = d.source; // keep following Obsidian Daily notes / Periodic Notes
     if (!skipHabits) {
       const old = p.goalsCache || [];
       const list = old.map((g) => Object.assign({}, g, { active: this.picked.has(g.name) }));
@@ -2766,8 +2794,19 @@ class OnboardingModal extends Modal {
     S.homePalette = this.look; S.explorerShortcuts = this.shortcuts;
     S.setupDone = true;
     await p.saveSettings();
-    this.close();
     p.refreshAll();
+    if (this.confirmFor) this.drawConfirm(this.confirmFor); else this.close();
+  }
+  /** Buttondown asks every new subscriber to confirm, and that email often lands in spam — say so before setup closes */
+  drawConfirm(email) {
+    const c = this.contentEl;
+    c.empty();
+    h(c, "h2", "planfold-h2", L("One last step: confirm your email", "最后一步：确认邮箱"));
+    h(c, "p", "planfold-muted", L(`A confirmation email is on its way to ${email}. Click the link in it to start getting update emails.`, `确认邮件已经发到 ${email}，点一下邮件里的链接，才算订阅成功。`));
+    h(c, "p", "planfold-muted", L("Not in your inbox? Check your spam or junk folder, and mark it as “not spam”.", "收件箱里没找到的话，请看看垃圾邮件，并把它标记为「不是垃圾邮件」。"));
+    const foot = h(c, "div", "planfold-ob-foot");
+    h(foot, "span", "planfold-grow");
+    button(foot, L("Got it", "知道了"), "is-primary", () => this.close());
   }
   onClose() {
     this.contentEl.empty();
@@ -2846,7 +2885,7 @@ function groupRows(container) {
   }
 }
 class PlanfoldSettingTab extends PluginSettingTab {
-  constructor(app, plugin) { super(app, plugin); this.plugin = plugin; this.page = "notes"; }
+  constructor(app, plugin) { super(app, plugin); this.plugin = plugin; this.page = "general"; }
   display() {
     const p = this.plugin;
     if (p.settingsPage) { this.page = p.settingsPage; p.settingsPage = null; }
@@ -2855,11 +2894,13 @@ class PlanfoldSettingTab extends PluginSettingTab {
     c.addClass("planfold-settings");
     // Grouped by what the person is trying to do, not by how Planfold is built inside
     const groups = [
-      { id: "writing", label: L("Writing", "写作"), pages: [["notes", L("Notes", "笔记")], ["templates", L("Templates", "模板")], ["capture", L("Quick capture", "快速记录")]] },
-      { id: "tracking", label: L("Tracking", "追踪"), pages: [["habits", L("Habits", "习惯")]] },
-      { id: "home", label: L("Home", "主页"), pages: [["home", L("Home", "主页")]] },
       { id: "system", label: L("System", "系统"), pages: [["general", PRO ? L("Language & calendar", "语言与日历") : L("Language & time", "语言与时间")], ...(PRO ? [["license", L("License", "授权")]] : [])] },
+      { id: "notes", label: L("Note paths", "笔记路径"), pages: [["notes", ""]] },
+      { id: "templates", label: L("Note templates", "笔记模板"), pages: [["templates", ""]] },
+      { id: "capture", label: L("Quick notes", "随手记"), pages: [["capture", ""]] },
+      { id: "home", label: L("Layout & look", "布局与外观"), pages: [["home", ""]] },
     ];
+    if (this.page === "habits") this.page = "templates";
     const cur = groups.find((g) => g.pages.some(([k]) => k === this.page)) || groups[0];
     const nav = h(c, "div", "planfold-seg planfold-set-nav");
     for (const g of groups) { const b = h(nav, "button", g === cur ? "is-on" : "", g.label); b.type = "button"; b.addEventListener("click", () => { this.page = g.pages[0][0]; this.display(); }); }
@@ -2878,45 +2919,50 @@ class PlanfoldSettingTab extends PluginSettingTab {
 
   page_notes(el) {
     const p = this.plugin, S = p.settings;
-    this.intro(el, L("Planfold reads and writes plain Markdown notes. Change where they live and how they're named.", "Planfold 读写的都是普通 Markdown 笔记。你可以在这里修改它们的位置和命名方式。"));
-    this.sub(el, L("Daily", "日记"));
-    this.row(el, L("Daily notes", "日记来源"), L("Follow Obsidian's Daily notes or Periodic Notes settings, or choose a folder yourself.", "跟随 Obsidian「日记」插件或 Periodic Notes 的设置，或者自己指定文件夹。"))
-      .addDropdown((d) => { d.addOption("obsidian", L("Obsidian Daily notes", "Obsidian 日记")); if (p.periodicDaily() || S.dailySource === "periodic") d.addOption("periodic", "Periodic Notes"); d.addOption("custom", L("A folder I choose", "我指定的文件夹")); return d.setValue(S.dailySource).onChange((v) => { S.dailySource = v; if (v === "custom" && !S.dailyFolder) S.dailyFolder = `${p.dir()}/Daily`; this.save(true); }); });
+    this.sub(el, L("Daily notes", "日记"));
+    const o = p.dailyOpts();
+    const today = `${o.folder ? o.folder + "/" : ""}${moment().format(o.format)}.md`;
+    this.row(el, L("Daily note path", "日记路径"), L(`Today's note: ${today}`, `今天的日记：${today}`))
+      .addDropdown((d) => { d.addOption("obsidian", L("Default", "默认设置")); if (p.periodicDaily() || S.dailySource === "periodic") d.addOption("periodic", L("Same as Periodic Notes", "和 Periodic Notes 一致")); d.addOption("custom", L("Choose a folder", "指定文件夹")); return d.setValue(S.dailySource).onChange((v) => { S.dailySource = v; if (v === "custom" && !S.dailyFolder) S.dailyFolder = `${p.dir()}/Daily`; this.save(true); }); });
     if (S.dailySource === "custom") {
-      this.row(el, L("Folder", "文件夹"), L("Where daily notes are created.", "新日记创建的位置。")).addText((t) => t.setValue(S.dailyFolder).onChange((v) => { S.dailyFolder = v; this.save(); }));
-      this.row(el, L("File name", "文件名"), L(`Today becomes ${moment().format(S.dailyFormat || DKEY)}.md`, `今天的日记会是 ${moment().format(S.dailyFormat || DKEY)}.md`)).addText((t) => t.setValue(S.dailyFormat).onChange((v) => { S.dailyFormat = v || DKEY; this.save(); }));
-    } else {
-      const o = p.dailyOpts();
-      this.row(el, L("Current location", "当前位置"), `${o.folder || L("vault root", "库根目录")}/${moment().format(o.format)}.md`);
+      this.row(el, L("Folder", "文件夹")).addText((t) => t.setValue(S.dailyFolder).onChange((v) => { S.dailyFolder = v; this.save(); }));
+      this.row(el, L("File name", "文件名格式"), L("YYYY-MM-DD gives 2026-10-25.md", "YYYY-MM-DD 会得到 2026-10-25.md")).addText((t) => t.setValue(S.dailyFormat).onChange((v) => { S.dailyFormat = v || DKEY; this.save(); }));
     }
-    this.row(el, L("Add Planfold sections to old notes", "给旧日记加入 Planfold 段落"), L("When you open a note written before Planfold.", "打开安装 Planfold 之前写的日记时。"))
-      .addDropdown((d) => d.addOption("ask", L("Ask each time", "每次询问")).addOption("always", L("Always", "总是")).addOption("never", L("Never", "从不")).setValue(S.oldNotes).onChange((v) => { S.oldNotes = v; this.save(); }));
+    // Yes = add the sections automatically; No = leave old notes as they are (the note still offers a one-click "add")
+    this.row(el, L("Older daily notes", "旧日记设置"), L("Add Planfold's default sections (to-dos, mood, habits) to daily notes written before Planfold?", "以前的日记是否要加上 Planfold 的默认格式（待办、心情、习惯）。"))
+      .addDropdown((d) => d.addOption("always", L("Yes", "是")).addOption("ask", L("No", "否")).setValue(S.oldNotes === "always" ? "always" : "ask").onChange((v) => { S.oldNotes = v; this.save(); }));
     if (S.oldNoteSkip.length) this.row(el, L(`${S.oldNoteSkip.length} notes marked “Not for this note”`, `${S.oldNoteSkip.length} 篇标记为「这篇不用」`)).addButton((b) => b.setButtonText(L("Ask again", "重新询问")).onClick(() => { S.oldNoteSkip = []; this.save(true); }));
-    this.sub(el, L("Weekly · Monthly · Yearly", "周 · 月 · 年"));
-    this.row(el, L("Planfold folder", "Planfold 文件夹"), L("Holds week, month and year notes and Goals.md.", "存放周、月、年笔记和 Goals.md。")).addText((t) => t.setValue(S.folder).onChange((v) => { S.folder = v || "Planfold"; this.save(); }));
-    for (const sc of ["week", "month", "year"]) {
-      const name = { week: L("Weekly notes", "周笔记"), month: L("Monthly notes", "月笔记"), year: L("Yearly notes", "年笔记") }[sc];
-      this.row(el, name, `${p.scopeFolder(sc)}/${moment().format(p.scopeFormat(sc))}.md`)
-        .addText((t) => t.setPlaceholder(`${p.dir()}/${{ week: "Week", month: "Month", year: "Year" }[sc]}`).setValue(S[sc + "Folder"]).onChange((v) => { S[sc + "Folder"] = v; this.save(); }))
-        .addText((t) => t.setValue(S[sc + "Format"]).onChange((v) => { S[sc + "Format"] = v; this.save(); }));
+    this.sub(el, L("Weekly, monthly and yearly notes", "周、月、年笔记"));
+    const ex = ["week", "month", "year"].map((sc) => `${p.scopeFolder(sc)}/${moment().format(p.scopeFormat(sc))}.md`);
+    this.row(el, L("Note path", "笔记路径"), L(`This week: ${ex[0]}`, `本周的笔记：${ex[0]}`)).addText((t) => t.setValue(S.folder).onChange((v) => { S.folder = v || "Planfold"; this.save(); }));
+    this.row(el, L("Set each folder separately", "单独设置文件夹名字"))
+      .addToggle((t) => t.setValue(!!this.notesAdv || ["week", "month", "year"].some((sc) => S[sc + "Folder"])).onChange((v) => { this.notesAdv = v; this.display(); }));
+    if (this.notesAdv || ["week", "month", "year"].some((sc) => S[sc + "Folder"])) {
+      ["week", "month", "year"].forEach((sc, i) => {
+        const name = { week: L("Weekly", "周笔记"), month: L("Monthly", "月笔记"), year: L("Yearly", "年笔记") }[sc];
+        this.row(el, name, ex[i])
+          .addText((t) => t.setPlaceholder(`${p.dir()}/${{ week: "Week", month: "Month", year: "Year" }[sc]}`).setValue(S[sc + "Folder"]).onChange((v) => { S[sc + "Folder"] = v; this.save(); }))
+          .addText((t) => t.setValue(S[sc + "Format"]).onChange((v) => { S[sc + "Format"] = v; this.save(); }));
+      });
     }
   }
 
   page_capture(el) {
     const p = this.plugin, S = p.settings;
     this.intro(el, L("Capture a thought from anywhere — it lands in today's Daily note.", "随时记下一个想法，它会写进今天的日记。"));
-    this.row(el, L("Save to", "保存到"), L("The Daily Note section used by Quick Capture.", "快速记录写入的日记段落。")).addDropdown((d) => {
+    this.row(el, L("Save to", "保存到"), L("Which section of the daily note quick notes go into.", "随手记写到日记的哪个段落。")).addDropdown((d) => {
       for (const f of S.templates.day || []) d.addOption(f.id, f.label);
-      d.setValue(S.quickCaptureField || "free").onChange((v) => { S.quickCaptureField = v; this.save(); });
+      d.addOption("quick", L("Notes, at the end of the daily note", "日记末尾的「随手记」"));
+      d.setValue(p.quickCaptureField().id).onChange((v) => { S.quickCaptureField = v; this.save(); });
     });
     this.row(el, L("Add capture time", "添加记录时间"), L("Prefix every capture with the current time.", "每条记录前加上当前时间。")).addToggle((t) => t.setValue(S.quickCaptureTimestamp !== false).onChange((v) => { S.quickCaptureTimestamp = v; this.save(); }));
     this.row(el, L("Mobile setup", "手机端设置"), L("Test capture and set up Obsidian Quick Action or an iPhone Home Screen shortcut.", "测试快速记录，并设置 Obsidian 快捷操作或 iPhone 主屏幕入口。"))
-      .addButton((b) => b.setButtonText(L("Set up", "开始设置")).onClick(() => new MobileCaptureSetupModal(this.app, p).open()));
+      .addButton((b) => b.setButtonText(L("Setup guide", "设置指南")).onClick(() => new MobileCaptureSetupModal(this.app, p).open()));
   }
 
   page_templates(el) {
     const p = this.plugin, S = p.settings;
-    this.intro(el, L("The sections in each note. Every time period has one note. Changes only apply to new notes; renamed sections are still found in old ones. Review's calendar shows the first Daily section.", "每个时间段都对应一张笔记。修改只影响以后的新笔记；改了名字的段落在旧笔记里仍然找得到。回顾页的日历显示日记的第一个段落。"));
+    this.intro(el, L("The sections in each note. Changes apply to new notes.", "每篇笔记里有哪些段落。修改只影响以后新建的笔记。"));
     const names = { day: L("Daily note", "日记"), week: L("Weekly note", "周笔记"), month: L("Monthly note", "月笔记"), year: L("Yearly note", "年笔记") };
     for (const sc of SCOPES) {
       this.sub(el, names[sc]);
@@ -2937,6 +2983,9 @@ class PlanfoldSettingTab extends PluginSettingTab {
     this.sub(el, L("Mood", "心情"));
     this.row(el, L("Ask for a mood each day", "每天记录心情"), L("Five dots, light to dark. Optional — never required.", "五个由浅到深的点，可以不填。")).addToggle((t) => t.setValue(S.askMood).onChange((v) => { S.askMood = v; this.save(); }));
     this.row(el, L("Reset templates", "恢复默认模板"), L("Back to the default sections in the current language.", "恢复成当前语言的默认段落。")).addButton((b) => b.setButtonText(L("Reset", "恢复")).onClick(() => { S.templates = defaultTemplates(LANG); S.templatesEdited = false; this.save(true); }));
+    groupRows(el);
+    this.sub(el, L("Habits", "习惯"));
+    this.page_habits(el);
   }
 
   page_habits(el) {
@@ -2977,16 +3026,11 @@ class PlanfoldSettingTab extends PluginSettingTab {
   page_home(el) {
     const p = this.plugin, S = p.settings;
     this.sub(el, L("Tabs", "标签页"));
-    this.intro(el, L("Choose the page Planfold opens on, then arrange the navigation independently.", "选择 Planfold 的启动页面，再单独调整顶部导航的顺序。"));
-    this.row(el, L("Start page", "启动页面"), L("This does not change the tab order.", "不会改变标签顺序。")).addDropdown((d) => {
-      S.tabOrder.forEach((t) => d.addOption(t, TAB_LABEL()[t]));
-      d.setValue(S.startTab || S.tabOrder[0]).onChange((v) => { S.startTab = v; this.save(); });
-    });
-    this.sub(el, L("Tab order", "标签顺序"));
     S.tabOrder.forEach((t, i) => {
-      const s = new obsidian.Setting(el).setName(`${i + 1}. ${TAB_LABEL()[t]}`).setDesc(t === S.startTab ? L("Start page", "启动页面") : "");
+      const s = new obsidian.Setting(el).setName(`${i + 1}. ${TAB_LABEL()[t]}`).setDesc(t === S.startTab ? L("Opens first", "打开时显示") : "");
       s.settingEl.addClass("planfold-order-setting");
       s
+        .addExtraButton((b) => { b.setIcon("home").setTooltip(L("Open Planfold on this page", "打开 Planfold 时显示这一页")).onClick(() => { S.startTab = t; this.save(true); }); b.extraSettingsEl.toggleClass("planfold-start-off", t !== S.startTab); })
         .addExtraButton((b) => b.setIcon("arrow-up").setDisabled(i === 0).onClick(() => { if (!i) return; S.tabOrder.splice(i - 1, 0, S.tabOrder.splice(i, 1)[0]); this.save(true); }))
         .addExtraButton((b) => b.setIcon("arrow-down").setDisabled(i === S.tabOrder.length - 1).onClick(() => { if (i === S.tabOrder.length - 1) return; S.tabOrder.splice(i + 1, 0, S.tabOrder.splice(i, 1)[0]); this.save(true); }));
     });
@@ -3010,16 +3054,28 @@ class PlanfoldSettingTab extends PluginSettingTab {
   page_general(el) {
     const p = this.plugin, S = p.settings;
     this.sub(el, L("Language", "语言"));
-    this.row(el, L("Interface language", "界面语言"), L("Note properties are always written in English.", "笔记属性始终以英文写入。")).addDropdown((d) => d.addOption("en", "English").addOption("zh", "中文").setValue(LANG).onChange((v) => {
+    this.row(el, L("Interface language", "界面语言")).addDropdown((d) => d.addOption("en", "English").addOption("zh", "中文").setValue(LANG).onChange((v) => {
       S.language = v; LANG = v;
       if (!S.templatesEdited) S.templates = defaultTemplates(v);
       this.save(true);
     }));
-    this.sub(el, PRO ? L("Calendar", "日历") : L("Week & time", "周与时间"));
+    this.sub(el, L("Time", "时间设置"));
     this.row(el, L("Week starts on", "每周开始于"), (PRO ? L("How the sidebar and Review calendars are drawn. Weekly notes always follow ISO weeks (Mon–Sun).", "右侧栏和回顾页日历从哪天开始。周笔记始终按 ISO 周（周一到周日）。") : L("The first day of the week on Home. Weekly notes always follow ISO weeks (Mon–Sun).", "主页上一周从哪天开始。周笔记始终按 ISO 周（周一到周日）。"))).addDropdown((d) => d.addOption("monday", L("Monday", "周一")).addOption("sunday", L("Sunday", "周日")).setValue(S.weekStart).onChange((v) => { S.weekStart = v; this.save(); }));
     this.row(el, L("Time format", "时间格式")).addDropdown((d) => d.addOption("", L("Automatic", "自动")).addOption("12", L("12-hour", "12 小时制")).addOption("24", L("24-hour", "24 小时制")).setValue(S.timeFormat).onChange((v) => { S.timeFormat = v; this.save(); }));
-    this.sub(el, L("Data", "数据"));
-    this.row(el, L("Rebuild activity index", "重建活动记录"), L("If Recent or Calendar look wrong after moving files.", "移动文件后，如果最近或日历显示不对，可以重建。")).addButton((b) => b.setButtonText(L("Rebuild", "重建")).onClick(async () => { await p.rebuildActivity(); p.refreshAll(); new Notice(L("Activity rebuilt", "已重建")); }));
+    this.sub(el, L("Other", "其他"));
+    if (S.updateEmail) {
+      this.row(el, L("Update emails", "更新提醒"), L(`Sent to ${S.updateEmail}. If you haven't yet, click the confirm link in the email from Planfold Updates.`, `发到 ${S.updateEmail}。如果还没确认，请点一下 Planfold Updates 发来的确认邮件（可能在垃圾邮件里）。`))
+        .addButton((b) => b.setButtonText(L("Change", "更换邮箱")).onClick(() => { S.updateEmail = ""; this.save(true); }));
+    } else {
+      let typed = "";
+      this.row(el, L("Update emails", "更新提醒"), L("Get a short email when Planfold has a new version.", "Planfold 有新版本时给你发一封简短的邮件。"))
+        .addText((t) => { t.setPlaceholder(L("you@example.com", "你的邮箱")).onChange((v) => { typed = v; }); t.inputEl.type = "email"; })
+        .addButton((b) => b.setButtonText(L("Subscribe", "订阅")).onClick(async () => {
+          if (!isEmail(typed)) { new Notice(L("That doesn't look like an email address.", "邮箱格式好像不对。")); return; }
+          if (await subscribeEmail(typed)) { S.updateEmail = typed.trim(); new Notice(L("Almost done — click the confirm link in the email we just sent (check spam if it isn't there).", "还差一步：点一下刚发到邮箱的确认链接（没收到的话看看垃圾邮件）。"), 12000); this.save(true); }
+          else new Notice(L("Couldn't subscribe right now. Please try again later.", "暂时没订阅成功，请稍后再试。"));
+        }));
+    }
     this.row(el, L("Run setup again", "重新运行引导")).addButton((b) => b.setButtonText(L("Open welcome", "打开欢迎页")).onClick(() => new OnboardingModal(this.app, p).open()));
   }
 

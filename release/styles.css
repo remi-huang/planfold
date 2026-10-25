@@ -2170,3 +2170,64 @@ body.is-mobile .planfold-capture-modal {
 .planfold-root .planfold-part-list .planfold-todo { min-height: 30px; }
 .planfold-root .planfold-part-list .planfold-part-add { margin-top: 0 !important; padding-block: 0 !important; min-height: 30px; }
 .planfold-root .planfold-part-list .planfold-part-add .planfold-add-input:not(:focus) { min-height: 30px; padding-block: 0 !important; }
+.planfold-ob-note { font-size: var(--t-type-caption); margin-top: 0; }
+
+/* ---------- 1.0.12: setup fields look like the writing fields inside Planfold ---------- */
+.planfold-onboarding .planfold-ob-section { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; }
+.planfold-onboarding input.planfold-ob-field {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: var(--t-control-h);
+  padding: 0 var(--t-space-3) !important;
+  border: 0 !important;
+  border-radius: var(--t-radius) !important;
+  background: var(--t-hover) !important;
+  box-shadow: none !important;
+  outline: none !important;
+  color: var(--text-normal);
+  font-size: var(--t-type-body);
+}
+.planfold-onboarding input.planfold-ob-field.is-hint { color: var(--text-muted); }
+.planfold-onboarding input.planfold-ob-field:focus { background: color-mix(in srgb, var(--text-normal) 8%, transparent) !important; }
+.planfold-onboarding .planfold-ob-section .planfold-icon-btn { opacity: .5; }
+.planfold-onboarding .planfold-ob-section .planfold-icon-btn:hover { opacity: 1; }
+
+/* ---------- 1.0.12: no lighter square under the window buttons ---------- */
+/* Obsidian paints the top of the left ribbon (where the red/yellow/green window buttons sit) with the
+   titlebar colour. With the Planfold design that colour is a shade lighter than the ribbon, so it read
+   as a separate square. Let the ribbon's own colour run all the way to the top.
+   Obsidian 1.14 renamed the left ribbon from .mod-left to .mod-primary, so both names are covered. */
+body.planfold-look .workspace-ribbon.mod-left::before,
+body.planfold-look .workspace-ribbon.mod-primary::before,
+body.planfold-look .workspace-ribbon.mod-left .sidebar-toggle-button,
+body.planfold-look .workspace-ribbon.mod-primary .sidebar-toggle-button {
+  background-color: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+/* setup's "Add your own…" fields share the soft, borderless field look */
+.planfold-onboarding .planfold-todo.planfold-add { display: block; min-height: 0; margin-top: var(--t-space-3); padding: 0 !important; border: 0 !important; background: transparent !important; }
+.planfold-onboarding .planfold-todo.planfold-add > .planfold-check.is-ghost { display: none; }
+.planfold-onboarding .planfold-add-input,
+.planfold-onboarding .planfold-add-input:focus {
+  box-sizing: border-box;
+  width: 100% !important;
+  margin: 0 !important;
+  height: var(--t-control-h) !important;
+  padding: 0 var(--t-space-3) !important;
+  border: 0 !important;
+  border-radius: var(--t-radius) !important;
+  background: var(--t-hover) !important;
+  box-shadow: none !important;
+  outline: none !important;
+  font-size: var(--t-type-body);
+}
+.planfold-onboarding .planfold-add-input::placeholder { color: var(--text-muted) !important; opacity: 1; }
+
+/* ---------- 1.0.12: last setup step, update emails ---------- */
+.planfold-onboarding input.planfold-ob-email { margin-top: var(--t-space-3); }
+.planfold-onboarding .planfold-ob-error { color: var(--text-error); min-height: 1.4em; margin-top: var(--t-space-2); }
+.planfold-settings .planfold-start-off { opacity: .3; }
+.planfold-settings .planfold-start-off:hover { opacity: .8; }

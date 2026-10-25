@@ -19,11 +19,13 @@ Everything Planfold writes is ordinary Markdown in your vault:
 | Week / month / year to-dos and notes | One note per period, in the Planfold folder (configurable) |
 | Habit list | `Goals.md` in the Planfold folder |
 
-Already keep daily notes? Setup finds them — Obsidian's Daily notes, Periodic Notes, or any folder of date-named notes — and keeps your folder, file names and template exactly as they are. Planfold asks before adding anything to a note you already wrote. It makes no network requests and collects no data.
+Already keep daily notes? Setup finds them — Obsidian's Daily notes, Periodic Notes, or any folder of date-named notes — and keeps your folder, file names and template exactly as they are. Planfold asks before adding anything to a note you already wrote.
 
 ## Privacy and permissions
 
-Planfold runs entirely on your device. It makes no network requests and collects no data.
+Planfold runs entirely on your device and collects no usage data.
+
+**Network use:** the only network request Planfold makes is optional. At the end of setup (and in Settings → Planfold → System) you can leave an email address to hear about new versions. Only if you type an address and confirm, Planfold sends that one address to [Buttondown](https://buttondown.com), the newsletter service that delivers the update emails. Nothing else is sent, skipping it sends nothing, and every email has an unsubscribe link. Buttondown's privacy policy: https://buttondown.com/legal/privacy
 
 - **Reads your vault's file list** to show Recent notes, Projects and search on Home.
 - **Writes to the clipboard** only when you press *Copy* in the mobile quick capture guide.
@@ -43,7 +45,7 @@ Planfold registers the URL `obsidian://planfold-capture?text=…`. Any shortcut 
 
 ## Appearance
 
-By default Planfold follows your theme. In **Settings → Planfold → Home** you can switch to the *Planfold design*, which also restyles sidebars, tabs and the file list. Setup asks which look you want the first time. Pinned and Recent shortcuts at the top of the file explorer can be turned on in the same place.
+By default Planfold follows your theme. In **Settings → Planfold → Layout & look** you can switch to the *Planfold design*, which also restyles sidebars, tabs and the file list. Setup asks which look you want the first time. Pinned and Recent shortcuts at the top of the file explorer can be turned on in the same place.
 
 ## Languages
 
