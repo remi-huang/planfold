@@ -1,6 +1,6 @@
-/* Planfold free — generated from src/*.js by build.sh */
+/* Planfold full — generated from src/*.js by build.sh */
 "use strict";
-const PRO = false;
+const PRO = true;
 /* ---------- core: constants, language, templates, settings ---------- */
 const obsidian = require("obsidian");
 const { Plugin, ItemView, Notice, PluginSettingTab, Modal, TFile, TFolder, MarkdownRenderer, setIcon, moment } = obsidian;
@@ -33,7 +33,11 @@ const guessLang = () => {
 };
 
 /* ---------- license (same keys as 0.21.0 and Tally) ---------- */
-const LICENSE_PUB = { kty: "EC", crv: "P-256", x: "jPxjTHj7snGHvlhQPjFTetc5jVidntsI6nK_V54SRtk", y: "z5j7tzWJ8lSMiwIgVHHOLHpnQYKnir2xnKevwAAO5Fo" };
+// keys that can sign a license: the 2026-11 Planfold key, and the earlier Tally key so keys already given out keep working
+const LICENSE_PUBS = [
+  { kty: "EC", crv: "P-256", x: "Ja_hPOGi_clCUpRh8Qd1WtDpj6-zNgORJ8J5SGxgnoA", y: "YQVoCwzBeRTpxPqV5XLt9it77JpUXkmd0dXZEUWAp-0" },
+  { kty: "EC", crv: "P-256", x: "jPxjTHj7snGHvlhQPjFTetc5jVidntsI6nK_V54SRtk", y: "z5j7tzWJ8lSMiwIgVHHOLHpnQYKnir2xnKevwAAO5Fo" },
+];
 const REVOKED = [];
 const b64uDec = (s) => { s = s.replace(/-/g, "+").replace(/_/g, "/"); while (s.length % 4) s += "="; const bin = atob(s); return Uint8Array.from(bin, (c) => c.charCodeAt(0)); };
 async function verifyLicense(key) {
@@ -41,12 +45,59 @@ async function verifyLicense(key) {
     const m = String(key || "").replace(/\s+/g, "").match(/^(?:PLANFOLD|TALLY)-([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)$/);
     if (!m) return null;
     const data = b64uDec(m[1]), sig = b64uDec(m[2]);
-    const k = await crypto.subtle.importKey("jwk", LICENSE_PUB, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
-    if (!(await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, k, sig, data))) return null;
+    let ok = false;
+    for (const pub of LICENSE_PUBS) {
+      const k = await crypto.subtle.importKey("jwk", pub, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
+      if (await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, k, sig, data)) { ok = true; break; }
+    }
+    if (!ok) return null;
     const p = JSON.parse(new TextDecoder().decode(data));
     if (!p || !["planfold", "tally"].includes(p.p) || REVOKED.includes(p.i)) return null;
     return p;
   } catch (e) { return null; }
+}
+
+/* ---------- buying Pro ---------- */
+/** Where "Get Planfold Pro" goes. Chinese: the Xiaohongshu shop; everyone else: Gumroad. Empty = no button. */
+const PRO_BUY_URL = { en: "https://remix280.gumroad.com/l/planfold-pro", zh: "" };
+/** Where people write with questions about buying or activating Pro. */
+const SUPPORT_EMAIL = "remi.rx@hotmail.com";
+/** Gumroad product whose license keys unlock Pro (Gumroad → product → Content → Insert → License key). */
+const GUMROAD_PRODUCT_ID = "JrdLOJ7n5Q6rVUcccu_QCA==";
+const isPlanfoldKey = (key) => /^(?:PLANFOLD|TALLY)-/i.test(String(key || "").replace(/\s+/g, ""));
+/** Check a Gumroad license key with Gumroad once, at activation. Only the key and the product id are sent. */
+/** Why the last Gumroad check failed, in words a person can act on (shown under the key box). */
+let GUMROAD_LAST_ERROR = "";
+async function verifyGumroad(key) {
+  GUMROAD_LAST_ERROR = "";
+  if (!GUMROAD_PRODUCT_ID) return null;
+  let r;
+  try {
+    r = await obsidian.requestUrl({ url: "https://api.gumroad.com/v2/licenses/verify", method: "POST", contentType: "application/x-www-form-urlencoded",
+      body: `product_id=${encodeURIComponent(GUMROAD_PRODUCT_ID)}&license_key=${encodeURIComponent(key.trim())}&increment_uses_count=false`, throw: false });
+  } catch (e) {
+    console.error("Planfold: Gumroad check failed", e);
+    GUMROAD_LAST_ERROR = L(`Couldn't reach Gumroad (${(e && e.message) || e}). Check your internet connection or proxy and try again.`, `连不上 Gumroad（${(e && e.message) || e}）。请检查网络或代理后再试。`);
+    return null;
+  }
+  let j = {};
+  try { j = r.json || {}; } catch (e) { j = {}; }
+  if (!j.success || !j.purchase) {
+    GUMROAD_LAST_ERROR = L(`Gumroad says: ${j.message || "HTTP " + r.status}`, `Gumroad 的回复：${j.message || "HTTP " + r.status}`);
+    return null;
+  }
+  if (j.purchase.refunded || j.purchase.chargebacked || j.purchase.disputed) {
+    GUMROAD_LAST_ERROR = L("This purchase was refunded, so the key no longer works.", "这笔订单已退款，激活码不能再用了。");
+    return null;
+  }
+  return { n: j.purchase.full_name || j.purchase.email || "", g: 1 };
+}
+/** Turn whatever the person pasted into a license, or null. PLANFOLD- keys are checked on this device; others go to Gumroad. */
+async function activateKey(key) {
+  const k = String(key || "").trim();
+  if (!k) return null;
+  if (isPlanfoldKey(k)) return verifyLicense(k);
+  return verifyGumroad(k);
 }
 
 /* ---------- moods ---------- */
@@ -77,10 +128,12 @@ const LEGACY_LABELS = {
 /* frontmatter keys written by 0.21.0 — shown when the section is empty */
 const LEGACY_FM = { day: { joy: "joy", better: "better" }, week: { keep: "keep", problems: "problems", try: "try" }, month: {}, year: {} };
 const TODO_LABELS = ["To do", "待办", "✅ To do", "🎯 This week", "🎯 Month goals", "🎯 Year goals", "This week", "Month goals", "Year goals", "本周", "月目标", "年目标"];
+const WEEK_MAIN = (lang) => lang === "zh" ? { id: "main", label: "这周最重要的一件事", hint: "只写一件", prev: [] } : { id: "main", label: "The most important thing this week", hint: "Just one", prev: [] };
 const defaultTemplates = (lang) => {
   const src = TPL_DEFAULT[lang] || TPL_DEFAULT.en, out = {};
   // week, month and year notes start blank: you add your own sections (the old Goal / Review names are still recognised)
   for (const s of Object.keys(src)) out[s] = s === "day" ? src[s].map(([id, label, hint, prev]) => ({ id, label, hint, prev: prev || [] })) : [];
+  if (PRO) out.week = [WEEK_MAIN(lang)]; // Pro: a week starts with its one most important thing (a Note section is always added)
   return out;
 };
 const SCOPES = ["day", "week", "month", "year"];
@@ -242,8 +295,17 @@ const plain = (t) => String(t || "").replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g
    ===================================================================== */
 class PlanfoldPlugin extends Plugin {
   async onload() {
+    // Only the "planfold-pro" test plugin runs next to the free Planfold, so only it turns that one off.
+    // The released Planfold (id "planfold") is a single plugin and skips all of this.
+    const testPro = this.manifest && this.manifest.id === "planfold-pro";
+    const plugins = this.app.plugins, on = (id) => !!(plugins && plugins.enabledPlugins && plugins.enabledPlugins.has(id));
+    if (testPro && on("planfold") && plugins.disablePluginAndSave) {
+      LANG = guessLang();
+      await plugins.disablePluginAndSave("planfold");
+      new Notice(L("Planfold Pro is on, so the free Planfold has been turned off. Your notes and settings carry over.", "Planfold Pro 已开启，免费版 Planfold 已自动停用。笔记和设置都会沿用。"), 10000);
+    }
     await this.loadSettings();
-    this.license = PRO ? await verifyLicense(this.settings.license) : null;
+    this.license = PRO ? await this.loadLicense() : null;
     this.dayCache = new Map();
     this.registerView(VIEW_TYPE, (leaf) => new PlanfoldView(leaf, this));
     if (PRO) {
@@ -252,6 +314,7 @@ class PlanfoldPlugin extends Plugin {
       this.addCommand({ id: "open-calendar", name: "Open calendar in the sidebar (Pro)", icon: "calendar-days", callback: () => this.openCalendar(true) });
     }
     this.addRibbonIcon("layout-dashboard", "Planfold", () => this.openView());
+    if (PRO) this.addRibbonIcon("calendar-days", L("Planfold calendar", "Planfold 日历"), () => this.openCalendar(true));
     this.addCommand({ id: "open", name: "Open home", callback: () => this.openView() });
     this.addCommand({ id: "open-today", name: "Open today's daily note", callback: async () => this.openFile(await this.ensureNote("day", moment())) });
     this.addCommand({ id: "quick-capture", name: "Quick capture to today", icon: "mic", callback: () => new QuickCaptureModal(this.app, this).open() });
@@ -276,18 +339,7 @@ class PlanfoldPlugin extends Plugin {
     this.registerEvent(this.app.vault.on("rename", (f, oldPath) => this.onRename(f, oldPath)));
     this.registerEvent(this.app.vault.on("delete", (f) => this.onDelete(f)));
     this.registerEvent(this.app.metadataCache.on("changed", (f) => { this.dayCache.delete(f.path); this.changed(f); }));
-    // proto.31: Pinned and Recent sit at the top of Obsidian's file explorer
-    this.registerEvent(this.app.workspace.on("file-menu", (menu, file) => {
-      if (!(file instanceof TFile) || file.extension !== "md") return;
-      const on = (this.settings.homePinnedPaths || []).includes(file.path);
-      menu.addItem((i) => i.setTitle(on ? L("Unpin", "取消置顶") : L("Pin", "置顶")).setIcon(on ? "pin-off" : "pin").onClick(() => this.togglePin(file)));
-    }));
-    this.addCommand({ id: "toggle-pin", name: "Pin or unpin the current note", icon: "pin", checkCallback: (checking) => {
-      const f = this.app.workspace.getActiveFile();
-      if (!f || f.extension !== "md") return false;
-      if (!checking) this.togglePin(f);
-      return true;
-    } });
+    // Recent notes sit at the top of Obsidian's file explorer. (Pinning was retired in 2026-11: Obsidian's own Bookmarks do that.)
     this.registerEvent(this.app.workspace.on("file-open", () => this.refreshExplorer()));
     this.registerEvent(this.app.workspace.on("layout-change", () => this.refreshExplorer()));
     this.register(() => { clearTimeout(this._explorerT); this.unmountExplorer(); document.body.removeClass("planfold-look"); });
@@ -296,7 +348,7 @@ class PlanfoldPlugin extends Plugin {
       this.mountExplorer();
       if (this.settings.migratedFrom) await this.importFields();
       // proto.44: the week calendar moves from Home to the right sidebar — put it there once; after that, where you keep it is up to you
-      if (PRO && !this.settings.calendarSidebarAdded && this.license) { this.settings.calendarSidebarAdded = true; await this.saveSettings(); this.openCalendar(false); }
+      if (PRO && !this.settings.calendarSidebarAdded) { this.settings.calendarSidebarAdded = true; await this.saveSettings(); this.openCalendar(false); }
       if (!this.settings.setupDone) { this.openView().then(() => new OnboardingModal(this.app, this).open()); return; }
       if (this.settings.openOnStartup) this.openView();
     });
@@ -305,7 +357,9 @@ class PlanfoldPlugin extends Plugin {
 
   async loadSettings() {
     let data = await this.loadData();
-    if (!data) data = (await this.importTally()) || (await this.importOld());
+    const firstRun = !data;
+    const testPro = this.manifest && this.manifest.id === "planfold-pro"; // the test plugin borrows the free plugin's settings once
+    if (!data) data = (testPro && (await this.importFree())) || (await this.importTally()) || (await this.importOld());
     this.settings = Object.assign({}, DEFAULTS, data || {});
     // Recent/activity come from this device. The first time, take what an older version kept in data.json.
     const local = this.loadLocal();
@@ -320,6 +374,13 @@ class PlanfoldPlugin extends Plugin {
     this.settings.homeLayout = normalizeHomeLayout(previousHomeLayout, this.settings.homeHidden);
     this.settings.homeLayoutVersion = HOME_LAYOUT_VERSION;
     if (!previousHomeLayout || previousHomeLayout.version !== HOME_LAYOUT_VERSION) this._migrateHomeLayout = true;
+    // Week, month and year plans became Pro in 2026-11. Anyone who already used Planfold keeps them free:
+    // the first time this version runs, existing settings mean an existing user, and that is remembered in data.json.
+    if (PRO && !this.settings.plansGate) {
+      this.settings.plansGate = 1;
+      this.settings.plansFree = !firstRun || !!data && !!data.setupDone;
+      this._saveGate = true;
+    }
     LANG = this.settings.language || guessLang();
     if (!this.settings.templates) this.settings.templates = defaultTemplates(LANG);
     if ((this.settings.periodNoteTemplateVersion || 0) < 1) {
@@ -345,13 +406,57 @@ class PlanfoldPlugin extends Plugin {
       this.settings.periodNoteTemplateVersion = 2;
       await this.writeData();
     }
-    if (this._migrateLocal || this._migrateHomeLayout) {
+    // Pro: the week template starts with "this week's most important thing"; a quick-notes section in it becomes the fixed Note
+    if (PRO && (this.settings.weekTemplateVersion || 0) < 1) {
+      const T = this.settings.templates, notes = ["随手记", "Notes", "Note", "Quick notes"];
+      const week = (T.week || []).filter((f) => !notes.includes(f.label));
+      // only for templates left as they came: a week template someone set up (or emptied) themselves stays theirs
+      if (!this.settings.templatesEdited && !week.some((f) => f.id === "main")) week.unshift(WEEK_MAIN(LANG));
+      T.week = week;
+      this.settings.weekTemplateVersion = 1;
+      await this.writeData();
+    }
+    if (this._migrateLocal || this._migrateHomeLayout || this._saveGate) {
       this._migrateLocal = false; this._migrateHomeLayout = false;
       await this.writeData();
     } // local lists move off data.json; Home receives the current layout schema
   }
   /** First load of `planfold`: take every setting from Remi's earlier build (id `tally`, author Remi).
       Another community plugin also uses the id `tally`, so the author is checked before anything is read. */
+  /** PLANFOLD- keys are verified offline every time; a Gumroad key was verified online once and is remembered. */
+  async loadLicense() {
+    const S = this.settings;
+    if (isPlanfoldKey(S.license)) return verifyLicense(S.license);
+    if (S.license && S.licenseGumroad && S.licenseGumroad.key === S.license) return { n: S.licenseGumroad.n || "", g: 1 };
+    return null;
+  }
+  /** Save a key the person entered. Returns true when it unlocked Pro. */
+  async useLicenseKey(key) {
+    const lic = await activateKey(key);
+    if (!lic) return false;
+    const S = this.settings, k = String(key).replace(/\s+/g, "");
+    S.license = k;
+    S.licenseGumroad = lic.g ? { key: k, n: lic.n || "" } : null;
+    this.license = lic;
+    await this.saveSettings();
+    if (!S.calendarSidebarAdded) { S.calendarSidebarAdded = true; await this.saveSettings(); this.openCalendar(false); }
+    this.refreshAll();
+    return true;
+  }
+  /** First load of Planfold Pro: carry over everything the free Planfold saved (settings, templates, license). */
+  async importFree() {
+    try {
+      const ad = this.app.vault.adapter, d = `${this.app.vault.configDir}/plugins/planfold`;
+      if (!(await ad.exists(`${d}/manifest.json`)) || !(await ad.exists(`${d}/data.json`))) return null;
+      const man = JSON.parse(await ad.read(`${d}/manifest.json`));
+      if (man.id !== "planfold" || man.author !== "Remi") return null;
+      const o = JSON.parse(await ad.read(`${d}/data.json`));
+      if (!o || typeof o !== "object") return null;
+      o.calendarSidebarAdded = false; // the free edition has no calendar: Pro puts it in the right sidebar the first time
+      return o;
+    } catch (e) { console.error("Planfold Pro: import from Planfold failed", e); }
+    return null;
+  }
   async importTally() {
     try {
       const ad = this.app.vault.adapter, d = `${this.app.vault.configDir}/plugins/tally`;
@@ -471,6 +576,7 @@ class PlanfoldPlugin extends Plugin {
   scopeFormat(scope) { return this.settings[scope + "Format"] || { week: "GGGG-[W]WW", month: "YYYY-MM", year: "YYYY" }[scope]; }
   start(scope, m) { const x = moment(m); return scope === "day" ? x.startOf("day") : scope === "week" ? x.startOf("isoWeek") : x.startOf(scope); }
   pathFor(scope, m) {
+    if (scope === "later") return `${this.dir()}/Later.md`; // the 中转站: to-dos waiting for a day
     if (scope === "day") { const o = this.dailyOpts(); return `${o.folder ? o.folder + "/" : ""}${moment(m).format(o.format)}.md`; }
     const f = this.scopeFolder(scope);
     return `${f ? f + "/" : ""}${moment(m).format(this.scopeFormat(scope))}.md`;
@@ -479,7 +585,7 @@ class PlanfoldPlugin extends Plugin {
   todoLabel() { return L("To do", "待办"); }
   planfoldBlock(scope) {
     const out = [`## ${this.todoLabel()}`, ""];
-    for (const f of scope === "day" ? this.dayFields() : this.settings.templates[scope] || []) out.push(`## ${f.label}`, "");
+    for (const f of this.scopeFields(scope)) out.push(`## ${f.label}`, "");
     return out.join("\n");
   }
   async ensureFolder(path) {
@@ -498,6 +604,11 @@ class PlanfoldPlugin extends Plugin {
   }
   async createNote(scope, m, path) {
     let body = "";
+    if (scope === "later") {
+      await this.ensureFolder(parentOf(path));
+      try { return await this.app.vault.create(path, `## ${this.todoLabel()}\n`); }
+      catch (e) { const f = this.app.vault.getAbstractFileByPath(path); if (f instanceof TFile) return f; throw e; }
+    }
     if (scope === "day") {
       const o = this.dailyOpts();
       if (o.template) {
@@ -541,7 +652,7 @@ class PlanfoldPlugin extends Plugin {
     const parsed = parseSections(text), fm = this.fm(file);
     const todo = this.findTodo(parsed);
     const fields = {}, found = {};
-    for (const f of scope === "day" ? this.dayFields() : this.settings.templates[scope] || []) {
+    for (const f of this.scopeFields(scope)) {
       const r = this.fieldValue(parsed, fm, scope, f);
       found[f.id] = !!r.sec;
       fields[f.id] = r.value;
@@ -571,7 +682,7 @@ class PlanfoldPlugin extends Plugin {
       const data = lf(raw), parsed = parseSections(data);
       const add = [];
       if (!this.findTodo(parsed)) add.push(`## ${this.todoLabel()}`, "");
-      for (const f of this.settings.templates[scope] || []) if (!this.findField(parsed, scope, f)) add.push(`## ${f.label}`, "");
+      for (const f of this.scopeFields(scope)) if (!this.findField(parsed, scope, f)) add.push(`## ${f.label}`, "");
       if (!add.length) return data;
       return data.replace(/\s*$/, "") + "\n\n" + add.join("\n") + "\n";
     });
@@ -641,6 +752,18 @@ class PlanfoldPlugin extends Plugin {
     const tpl = (this.settings.templates && this.settings.templates.day) || [], q = this.quickCaptureField();
     return tpl.some((f) => f.id === q.id) ? tpl : [...tpl, q];
   }
+  /** Pro: a weekly note always ends with a free "Note" section, the same way a day ends with its Notes. */
+  weekFields() {
+    const tpl = (this.settings.templates && this.settings.templates.week) || [];
+    const note = { id: "note", label: "Note", hint: L("Anything on your mind this week", "这周想到什么写什么"), prev: ["Notes", "随手记", "Quick notes"] };
+    return tpl.some((f) => f.id === note.id) ? tpl : [...tpl, note];
+  }
+  /** The sections Planfold reads and writes for a note of this scope. */
+  scopeFields(scope) {
+    if (scope === "day") return this.dayFields();
+    if (scope === "week" && PRO) return this.weekFields();
+    return (this.settings.templates && this.settings.templates[scope]) || [];
+  }
   async appendQuickCapture(value) {
     const text = String(value || "").trim();
     if (!text) return null;
@@ -660,9 +783,11 @@ class PlanfoldPlugin extends Plugin {
     });
     return file;
   }
-  async addTodo(scope, m, text, done = false) {
-    text = String(text || "").trim();
-    if (!text) return;
+  async addTodo(scope, m, text, done = false) { return this.addTodos(scope, m, [{ text, done }]); }
+  /** Several to-dos in one write, appended to the note's To do list in order */
+  async addTodos(scope, m, list) {
+    const add = list.map((x) => ({ text: String(x.text || "").trim(), done: !!x.done })).filter((x) => x.text).map((x) => `- [${x.done ? "x" : " "}] ${x.text}`);
+    if (!add.length) return;
     const file = await this.ensureNote(scope, m);
     await this.app.vault.process(file, (raw) => {
       const parsed = parseSections(raw), ls = parsed.ls.slice();
@@ -672,12 +797,12 @@ class PlanfoldPlugin extends Plugin {
         let at = start;
         while (at < ls.length && !ls[at].trim()) at++;
         if (at < ls.length && /^#\s/.test(ls[at])) { at++; while (at < ls.length && !ls[at].trim()) at++; } else at = start;
-        ls.splice(at, 0, ...(at > 0 && ls[at - 1] && ls[at - 1].trim() ? [""] : []), `## ${this.todoLabel()}`, `- [${done ? "x" : " "}] ${text}`, "");
+        ls.splice(at, 0, ...(at > 0 && ls[at - 1] && ls[at - 1].trim() ? [""] : []), `## ${this.todoLabel()}`, ...add, "");
         return ls.join("\n");
       }
       let last = sec.line;
       for (const i of sec.lines) if (/^\s*[-*] \[[ xX]\]/.test(ls[i])) last = i;
-      ls.splice(last + 1, 0, `- [${done ? "x" : " "}] ${text}`);
+      ls.splice(last + 1, 0, ...add);
       return ls.join("\n");
     });
   }
@@ -692,6 +817,26 @@ class PlanfoldPlugin extends Plugin {
     if (lf(await this.app.vault.read(f)).split("\n")[item.line] !== item.raw) { this.staleNotice(); return false; }
     await this.addTodo(scope, m, body, item.done);
     return this.lineOp(path, item, () => null);
+  }
+  /** Move several to-dos at once (into or out of the 中转站). Same rule as one: add to the target first, then remove. */
+  async moveTodos(path, items, scope, m) {
+    items = (items || []).filter(Boolean);
+    const f = this.app.vault.getAbstractFileByPath(path);
+    if (!items.length || !(f instanceof TFile)) return false;
+    const target = this.fileFor(scope, m);
+    if ((target ? target.path : this.pathFor(scope, m)) === path) return true;
+    const ls = lf(await this.app.vault.read(f)).split("\n");
+    if (items.some((it) => ls[it.line] !== it.raw)) { this.staleNotice(); return false; }
+    await this.addTodos(scope, m, items.map((it) => ({ text: (it.star ? "⭐ " : "") + (it.time ? it.time + " " : "") + it.text, done: it.done })));
+    let ok = true;
+    await this.app.vault.process(f, (data) => {
+      const xs = lf(data).split("\n");
+      if (items.some((it) => xs[it.line] !== it.raw)) { ok = false; return data; }
+      [...items].sort((a, b) => b.line - a.line).forEach((it) => xs.splice(it.line, 1));
+      return xs.join("\n");
+    });
+    if (!ok) this.staleNotice();
+    return ok;
   }
   staleNotice() { new Notice(L("The note just changed. Refreshed — please try again.", "笔记刚刚有变动，已刷新，请再试一次。")); }
   async lineOp(path, item, fn) {
@@ -874,12 +1019,12 @@ class PlanfoldPlugin extends Plugin {
   fileAt(path) { const f = path && this.app.vault.getAbstractFileByPath(path); return f instanceof TFile ? f : null; }
   recentFiles(limit = 5) {
     const seen = new Set(), out = [];
-    const add = (f) => { if (f && !seen.has(f.path) && !this.ignored(f.path) && !(this.settings.homePinnedPaths || []).includes(f.path)) { seen.add(f.path); out.push(f); } };
+    const add = (f) => { if (f && !seen.has(f.path) && !this.ignored(f.path)) { seen.add(f.path); out.push(f); } };
     for (const p of this.settings.homeRecentPaths) add(this.fileAt(p));
     if (out.length < limit) this.app.vault.getMarkdownFiles().slice().sort((a, b) => b.stat.mtime - a.stat.mtime).slice(0, 50).forEach(add);
     return out.slice(0, limit);
   }
-  pinnedFiles() { return this.settings.homePinnedPaths.map((p) => this.fileAt(p)).filter(Boolean); }
+  pinnedFiles() { return []; } // pinning retired: Obsidian's Bookmarks do the same job
   async togglePin(file) {
     const l = this.settings.homePinnedPaths;
     this.settings.homePinnedPaths = l.includes(file.path) ? l.filter((p) => p !== file.path) : [...l, file.path];
@@ -1088,6 +1233,41 @@ function inlineEdit(el, value, onSave, hint) {
   // Enter / Space on the line itself starts editing; keys typed inside the edit field are left alone
   el.addEventListener("keydown", (e) => { if (e.target !== el) return; if (e.key === "Enter" || e.key === " ") { e.preventDefault(); begin(e); } });
 }
+/** A small month calendar that opens right under a button (Planfold's own look, not the system picker).
+    Calls back with the day picked; Esc or a click elsewhere closes it. */
+function pickDay(view, anchorEl, onPick) {
+  view.root.querySelectorAll(".planfold-daypop").forEach((x) => x._close());
+  const sunday = view.plugin.settings.weekStart === "sunday";
+  const pop = h(view.root, "div", "planfold-daypop"); pop.setAttr("role", "dialog");
+  let month = moment().startOf("month");
+  const close = () => { pop.remove(); document.removeEventListener("mousedown", outside, true); document.removeEventListener("keydown", esc, true); };
+  pop._close = close;
+  const outside = (e) => { if (!pop.contains(e.target) && !anchorEl.contains(e.target)) close(); };
+  const esc = (e) => { if (e.key === "Escape") { e.stopPropagation(); close(); } };
+  const draw = () => {
+    pop.empty();
+    const head = h(pop, "div", "planfold-daypop-head");
+    const nav = (name, label, d) => { const b = h(head, "button", "planfold-icon-btn planfold-daypop-nav"); b.type = "button"; b.setAttr("aria-label", label); try { setIcon(b, name); } catch (e) {} b.addEventListener("click", () => { month.add(d, "month"); draw(); }); };
+    nav("chevron-left", L("Previous month", "上个月"), -1);
+    h(head, "strong", "planfold-daypop-title", dateFmt.month(month));
+    nav("chevron-right", L("Next month", "下个月"), 1);
+    const grid = h(pop, "div", "planfold-daypop-grid");
+    const names = LANG === "zh" ? ["一", "二", "三", "四", "五", "六", "日"] : ["M", "T", "W", "T", "F", "S", "S"];
+    (sunday ? [names[6], ...names.slice(0, 6)] : names).forEach((n) => h(grid, "span", "planfold-daypop-wd", n));
+    const first = month.clone(), lead = sunday ? first.day() : (first.isoWeekday() - 1);
+    for (let i = 0; i < lead; i++) h(grid, "span", "");
+    for (let d = month.clone(); d.isSame(month, "month"); d.add(1, "day")) {
+      const day = d.clone();
+      const b = h(grid, "button", "planfold-daypop-day" + (day.isSame(moment(), "day") ? " is-today" : ""), String(day.date())); b.type = "button";
+      b.addEventListener("click", () => { close(); onPick(day); });
+    }
+  };
+  draw();
+  const r = anchorEl.getBoundingClientRect(), rr = view.root.getBoundingClientRect();
+  pop.style.top = (r.bottom - rr.top + view.root.scrollTop + 4) + "px";
+  pop.style.left = Math.max(0, Math.min(r.right - rr.left - pop.offsetWidth, rr.width - pop.offsetWidth - 8)) + "px";
+  setTimeout(() => { document.addEventListener("mousedown", outside, true); document.addEventListener("keydown", esc, true); }, 0);
+}
 function addInput(parent, placeholder, onAdd, focusPlaceholder) {
   const row = h(parent, "div", "planfold-todo planfold-add");
   h(row, "span", "planfold-check is-ghost");
@@ -1104,10 +1284,32 @@ function addInput(parent, placeholder, onAdd, focusPlaceholder) {
   });
   return inp;
 }
+/** A writing field is always exactly as tall as what's in it: no inner scrolling, no clipped last line.
+    Measured here rather than left to CSS `field-sizing`, because themes can pin a textarea's height. */
 function autosize(ta) {
-  if (window.CSS && CSS.supports && CSS.supports("field-sizing", "content")) return () => {};
-  const f = () => { ta.style.height = "0px"; ta.style.height = ta.scrollHeight + "px"; };
-  ta.addEventListener("input", f); requestAnimationFrame(f); setTimeout(f, 50); return f;
+  if (ta._autosize) { ta._autosize(); return ta._autosize; } // already set up: just measure again
+  // the page this field scrolls in: measuring briefly shrinks the field, which would pull the page back up
+  const scroller = () => { for (let e = ta.parentElement; e; e = e.parentElement) { const o = getComputedStyle(e).overflowY; if ((o === "auto" || o === "scroll") && e.scrollHeight > e.clientHeight) return e; } return document.scrollingElement; };
+  const f = () => {
+    if (!ta.isConnected || ta.hidden) return;
+    const sc = scroller(), top = sc ? sc.scrollTop : 0, before = ta.offsetHeight;
+    ta.style.setProperty("height", "0px", "important");
+    const next = ta.scrollHeight;
+    ta.style.setProperty("height", next + "px", "important");
+    if (sc && sc.scrollTop !== top) sc.scrollTop = top; // put the page back exactly where it was
+    // typing at the end of a long entry: keep the line you're writing in view as the field grows
+    if (sc && next > before && document.activeElement === ta && ta.selectionEnd >= ta.value.length - 1) {
+      const r = ta.getBoundingClientRect(), view = sc === document.scrollingElement ? window.innerHeight : sc.getBoundingClientRect().bottom;
+      if (r.bottom > view - 24) sc.scrollTop += r.bottom - (view - 24);
+    }
+  };
+  ta.addEventListener("input", f);
+  ta.addEventListener("focus", f);
+  ta._autosize = f;
+  requestAnimationFrame(f); setTimeout(f, 50);
+  // a narrower or wider pane rewraps the text, so measure again when the width changes
+  if (window.ResizeObserver) { let w = 0; new ResizeObserver((es) => { const nw = Math.round(es[0].contentRect.width); if (nw !== w) { w = nw; f(); } }).observe(ta); }
+  return f;
 }
 
 // Page and panel surfaces, measured from the theme as rendered.
@@ -1212,6 +1414,7 @@ class PlanfoldView extends ItemView {
     root.toggleClass("is-zh", LANG === "zh");
     root.toggleClass("planfold-palette-ff", p.settings.homePalette !== "theme"); // W4 sage palette on Home unless "follow my theme"
     root.toggleClass("is-home", this.tab === "home");
+    root.removeClass("is-dragging-todo"); // a drop redraws the page before the dragged row can say it ended
     this._assignTargets = []; // the plan refills this; elsewhere the handle menu only reorders
     root.toggleClass("is-plan", this.tab === "planner"); // the plan shares Home's look
     root.toggleClass("is-review", this.tab === "review"); // and so does the review
@@ -1225,7 +1428,8 @@ class PlanfoldView extends ItemView {
       // the sidebar calendar: no tabs, just the calendar
       this.body = h(root, "div", "planfold-body");
       const side = h(this.body, "div", "planfold-inner planfold-side");
-      if (!p.license) this.renderLocked(side); // the calendar is Pro
+      // the calendar is Pro: without a license it is drawn for real, read-only and fading out, under the offer
+      if (!p.license) await this.renderPaywall(side, "calendar", (el) => this.homeCalendar(el, { side: !this.isFull }));
       else try { await this.homeCalendar(side, { side: !this.isFull }); }
       catch (e) { console.error("Planfold calendar", e); }
       this._built = true; this.body.scrollTop = scroll; this._rendering--;
@@ -1246,7 +1450,7 @@ class PlanfoldView extends ItemView {
     this.body = h(root, "div", "planfold-body");
     const inner = h(this.body, "div", "planfold-inner planfold-" + this.tab);
     try {
-      if (this.tab === "review" && !p.license) this.renderLocked(inner); // Home and Note are free; Review is Pro
+      if (this.tab === "review" && !p.license) await this.renderPaywall(inner, "review", (el) => this.renderReview(el)); // Home and Note are free; Review is Pro
       else if (this.tab === "home") await this.renderHome(inner);
       else if (this.tab === "planner") await this.renderPlanner(inner);
       else await this.renderReview(inner);
@@ -1329,20 +1533,107 @@ class PlanfoldView extends ItemView {
     if (tabId) this.plugin.settingsPage = tabId;
     if (s && s.open) { s.open(); s.openTabById && s.openTabById(this.plugin.manifest.id); }
   }
-  renderLocked(inner) {
-    const box = h(inner, "div", "planfold-locked planfold-panel");
-    h(box, "h2", "planfold-h2", L("Planfold Pro", "Planfold Pro"));
-    h(box, "p", "planfold-muted", L("Home and Note are free. Review and the calendar are part of Planfold Pro — enter the license key you received with your purchase.", "主页和记录免费。回顾和日历属于 Planfold Pro，请输入购买后收到的授权码。"));
-    const row = h(box, "div", "planfold-row");
-    const inp = h(row, "input", "planfold-input");
-    inp.placeholder = "PLANFOLD-…";
-    button(row, L("Activate", "激活"), "is-primary", async () => {
-      const lic = await verifyLicense(inp.value);
-      if (!lic) { new Notice(L("This key doesn't look right. Copy the whole key, starting with PLANFOLD-.", "授权码不对。请完整复制，以 PLANFOLD- 开头。")); return; }
-      this.plugin.settings.license = inp.value.replace(/\s+/g, ""); this.plugin.license = lic;
-      await this.plugin.saveSettings(); new Notice(L("Planfold Pro activated", "Planfold Pro 已激活")); this.plugin.refreshAll();
-      if (!this.plugin.settings.calendarSidebarAdded) { this.plugin.settings.calendarSidebarAdded = true; await this.plugin.saveSettings(); this.plugin.openCalendar(false); }
+  /** What someone without Pro sees on Review or in the sidebar calendar: what it does, where to get it, and a box for the key. */
+  /** A Pro page for someone without Pro: the real page, drawn from their own notes, shown read-only and fading out,
+      with the offer sitting where it fades. */
+  async renderPaywall(inner, kind, draw) {
+    const p = this.plugin, side = kind === "calendar";
+    const wrap = h(inner, "div", "planfold-teaser" + (side ? " is-side" : ""));
+    const rail = h(wrap, "div", "planfold-teaser-rail");
+    const card = h(rail, "div", "planfold-locked planfold-teaser-card");
+    const preview = h(wrap, "div", "planfold-teaser-preview");
+    preview.setAttr("aria-hidden", "true");
+    preview.inert = true; // look, don't touch
+    try { await draw(preview); } catch (e) { console.error("Planfold preview", e); }
+    preview.addEventListener("pointerdown", () => card.scrollIntoView({ behavior: "smooth", block: "center" }));
+    this.paywallCard(card, kind);
+  }
+  /** Days this month that have a daily note: the hook for the Review offer. */
+  daysWrittenThisMonth() {
+    const p = this.plugin, today = moment();
+    let n = 0;
+    for (const m = today.clone().startOf("month"); !m.isAfter(today, "day"); m.add(1, "day")) if (p.fileFor("day", m)) n++;
+    return n;
+  }
+  /** The offer, the same on every Pro page: one big unlock button, then everything Pro includes, ticked. */
+  paywallCard(box) {
+    const S = this.plugin.settings;
+    h(box, "div", "planfold-locked-badge", "PRO");
+    const url = PRO_BUY_URL[LANG] || PRO_BUY_URL.en;
+    const buy = button(box, L("Unlock Planfold Pro", "解锁 Planfold Pro"), "is-primary planfold-locked-buy", () => {
+      if (url) window.open(url); else new Notice(L("The purchase page isn't set up yet.", "购买页面还没设置好。"));
     });
+    buy.setAttr("aria-label", L("Opens the purchase page in your browser", "在浏览器里打开购买页面"));
+    h(box, "div", "planfold-locked-fine", L("Pay once", "一次买断"));
+    // Free and Pro side by side: a tick where the edition has it, a dash where it doesn't
+    const table = h(box, "div", "planfold-locked-compare");
+    const head = h(table, "div", "planfold-compare-row is-head");
+    h(head, "span", "planfold-compare-name", "");
+    h(head, "span", "planfold-compare-col", "Free");
+    h(head, "span", "planfold-compare-col is-pro", "Pro");
+    for (const [t, free] of [
+      [L("Daily notes:\nto-dos, mood,\nhabits, quick notes", "每日记录：\n待办清单、心情记录\n习惯追踪、随手记"), true],
+      [L("Weekly, monthly and yearly plans and reviews", "周、月、年的计划和复盘"), false],
+      [L("Review: patterns and summaries", "回顾：记录追踪与总结"), false],
+      [L("Calendar view", "日历视图"), false],
+    ]) {
+      const row = h(table, "div", "planfold-compare-row");
+      h(row, "span", "planfold-compare-name", t);
+      for (const has of [free, true]) {
+        const cell = h(row, "span", "planfold-compare-col" + (has === true && !free ? " is-pro" : ""));
+        if (has) { const tick = h(cell, "span", "planfold-locked-tick"); try { setIcon(tick, "check"); } catch (e) {} tick.setAttr("aria-label", L("Included", "包含")); }
+        else { const dash = h(cell, "span", "planfold-compare-no", "—"); dash.setAttr("aria-label", L("Not included", "不包含")); }
+      }
+    }
+    // the two quieter actions, both open: a key you already have, or an email for updates
+    const more = h(box, "div", "planfold-locked-more");
+    h(more, "div", "planfold-locked-have", L("Already have a key?", "已有激活码？"));
+    this.lockedKey(more);
+    if (!S.updateEmail) { h(more, "div", "planfold-locked-have", L("Tell me when Planfold updates", "插件更新时通知我")); this.lockedSubscribe(more); }
+    const help = h(box, "div", "planfold-locked-help");
+    help.append(L("Questions? Contact ", "有问题？联系 "));
+    const mail = h(help, "a", "", SUPPORT_EMAIL);
+    mail.href = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("Planfold Pro")}`;
+  }
+  lockedKey(box) {
+    const p = this.plugin;
+    const row = h(box, "div", "planfold-locked-row");
+    const inp = h(row, "input", "planfold-ob-field planfold-locked-input");
+    inp.placeholder = L("Paste your key", "粘贴激活码");
+    const err = h(box, "p", "planfold-ob-note planfold-ob-error", "");
+    const go = async () => {
+      if (!inp.value.trim()) return;
+      act.disabled = true; err.setText("");
+      const ok = await p.useLicenseKey(inp.value);
+      act.disabled = false;
+      if (ok) new Notice(L("Planfold Pro is on. Thank you!", "Planfold Pro 已激活，谢谢支持！"));
+      else err.setText(isPlanfoldKey(inp.value) || !GUMROAD_PRODUCT_ID ? L("This key doesn't look right. Copy the whole key and try again.", "激活码不对，请完整复制后再试一次。") : (GUMROAD_LAST_ERROR || L("Gumroad didn't recognise this key. Check it and try again.", "Gumroad 没认出这个激活码，请检查后再试。")));
+    };
+    const act = button(row, L("Activate", "激活"), "", go);
+    inp.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) go(); });
+  }
+  /** Not ready to buy? Leave an email to hear about updates (the same opt-in list as setup and Settings). */
+  lockedSubscribe(box) {
+    const p = this.plugin, S = p.settings;
+    const wrap = h(box, "div", "planfold-locked-sub");
+    if (S.updateEmail) { h(wrap, "div", "planfold-locked-have", L(`Update emails go to ${S.updateEmail}.`, `更新通知会发到 ${S.updateEmail}。`)); return; }
+    const row = h(wrap, "div", "planfold-locked-row");
+    const inp = h(row, "input", "planfold-ob-field planfold-locked-input");
+    inp.type = "email"; inp.placeholder = L("you@example.com", "你的邮箱");
+    const err = h(wrap, "p", "planfold-ob-note planfold-ob-error", "");
+    const go = async () => {
+      const v = inp.value.trim();
+      if (!isEmail(v)) { err.setText(L("That doesn't look like an email address.", "邮箱格式好像不对。")); return; }
+      sub.disabled = true; err.setText("");
+      const ok = await subscribeEmail(v);
+      sub.disabled = false;
+      if (!ok) { err.setText(L("Couldn't subscribe right now. Please try again later.", "暂时没订阅成功，请稍后再试。")); return; }
+      S.updateEmail = v; await p.saveSettings();
+      wrap.empty();
+      h(wrap, "div", "planfold-locked-have", L(`Almost done — click the confirm link in the email sent to ${v} (check spam if it isn't there).`, `还差一步：点一下发到 ${v} 的确认邮件里的链接（没收到的话看看垃圾邮件）。`));
+    };
+    const sub = button(row, L("Subscribe", "订阅"), "", go);
+    inp.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) go(); });
   }
 }
 
@@ -1574,7 +1865,6 @@ Object.assign(PlanfoldView.prototype, {
       if (action) button(r, label, "", action);
     };
     step("1", L("Choose project folders", "选几个项目文件夹"), L("Any folder, any level. Nothing gets moved.", "任意层级都可以，不会移动文件。"), () => new ProjectsModal(this.app, p, () => this.render()).open(), L("Choose", "选择"));
-    step("2", L("Pin the notes you return to", "置顶常回来的笔记"), L("Right-click any note → Pin to Planfold Home.", "在任意笔记上右键 →「置顶到 Planfold 主页」。"));
   },
 
   homeSearch(parent) {
@@ -1621,8 +1911,6 @@ Object.assign(PlanfoldView.prototype, {
     row.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); this.plugin.openFile(file); } });
     row.addEventListener("contextmenu", (e) => {
       const menu = new obsidian.Menu();
-      const on = this.plugin.settings.homePinnedPaths.includes(file.path);
-      menu.addItem((i) => i.setTitle(on ? L("Unpin", "取消置顶") : L("Pin to Planfold Home", "置顶到主页")).setIcon("pin").onClick(() => this.plugin.togglePin(file)));
       menu.addItem((i) => i.setTitle(L("Open in new tab", "在新标签页打开")).setIcon("file-plus").onClick(() => this.plugin.openFile(file, true)));
       menu.showAtMouseEvent(e);
     });
@@ -1779,9 +2067,11 @@ Object.assign(PlanfoldView.prototype, {
     const sec = h(parent, "div", "planfold-ff-section");
     const head = h(sec, "div", "planfold-ff-head");
     h(head, "span", "planfold-ff-kicker", ffKick("TO-DO", "待办"));
-    openButton(head, L("Open today", "打开今天"), () => this.go("planner", { scope: "day", anchor: moment() }), true);
+    const acts = h(head, "span", "planfold-head-acts");
+    openButton(acts, L("Open today", "打开今天"), () => this.go("planner", { scope: "day", anchor: moment() }), true);
     const card = h(sec, "div", "planfold-ff-card planfold-ff-todos planfold-mod-today is-primary");
     const panel = h(card, "div", "planfold-todos");
+    (this._assignTargets = this._assignTargets || []).push({ label: L("today", "今天"), scope: "day", m: moment(today), path: note.path });
     // today's list and this week's list each get their own box, so reordering never mixes the two notes
     const dayList = h(panel, "div", "planfold-home-daylist");
     // what's left comes first; done things sink to the bottom (the note keeps its own order)
@@ -1790,6 +2080,8 @@ Object.assign(PlanfoldView.prototype, {
     if (star) this.todoRow(h(dayList, "div", "planfold-home-star"), note.path, star);
     rest.forEach((it) => this.todoRow(dayList, note.path, it));
     addInput(dayList, L("Add a to-do", "添加待办"), async (v) => { await p.addTodo("day", today, v); this.render(); }, TIME_EXAMPLE());
+    this.planDrop(dayList, "day", today, note.path);
+    await this.laterStation(dayList, "day", today, L("today", "今天"), acts);
     // the week's backlog lives in the week view; Today only points there
     button(card, L("View week →", "查看本周 →"), "planfold-link planfold-view-week", () => this.go("planner", { scope: "week", anchor: moment() }));
   },
@@ -2073,6 +2365,8 @@ Object.assign(PlanfoldView.prototype, {
     const p = this.plugin;
     const row = h(parent, "div", "planfold-todo" + (it.done ? " is-done" : "") + (it.star ? " is-star" : ""));
     row._planfoldItem = it;
+    const isLater = path === p.pathFor("later");
+    const toLater = async () => { await p.rescheduleTodo(path, it, "later", moment(), it.time || ""); this.softRefresh(true); };
     row.addEventListener("focusin", (e) => { if (e.target && e.target.matches && e.target.matches(".planfold-inline-input")) row.addClass("is-editing"); });
     row.addEventListener("focusout", () => setTimeout(() => { if (!row.querySelector(".planfold-inline-input")) row.removeClass("is-editing"); }, 220));
     // drag handle (shows on hover) — reorder within the same list
@@ -2094,10 +2388,11 @@ Object.assign(PlanfoldView.prototype, {
       if (i >= 0 && i < rows.length - 1) actions.push([L("Move down", "下移"), () => moveBy(1)]);
       // the plan's week / month / year: hand a to-do to a day, week or month without dragging (keyboard, touch)
       for (const t of this._assignTargets || []) if (t.path !== path) actions.push([L(`Move to ${t.label}`, `移到 ${t.label}`), async () => { await p.rescheduleTodo(path, it, t.scope, moment(t.m), it.time || ""); this.softRefresh(true); }]);
+      if (!isLater) actions.push([L("Move to Later", "放进中转站"), toLater]);
       if (actions.length) this.quickMenu(e, actions);
     });
-    row.addEventListener("dragstart", (e) => { this._drag = { path, it }; row.addClass("is-dragging"); try { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", it.full); } catch (err) {} });
-    row.addEventListener("dragend", () => { row.draggable = false; row.removeClass("is-dragging"); this._drag = null; parent.querySelectorAll(".is-drop-before,.is-drop-after").forEach((x) => x.removeClass("is-drop-before", "is-drop-after")); });
+    row.addEventListener("dragstart", (e) => { this._drag = { path, it }; row.addClass("is-dragging"); setTimeout(() => this.root.addClass("is-dragging-todo"), 0); try { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", it.full); } catch (err) {} });
+    row.addEventListener("dragend", () => { this.root.removeClass("is-dragging-todo"); row.draggable = false; row.removeClass("is-dragging"); this._drag = null; parent.querySelectorAll(".is-drop-before,.is-drop-after").forEach((x) => x.removeClass("is-drop-before", "is-drop-after")); });
     row.addEventListener("dragover", (e) => {
       const d = this._drag;
       if (!d || d.path !== path || d.it.line === it.line) return;
@@ -2124,13 +2419,19 @@ Object.assign(PlanfoldView.prototype, {
     if (it.time) h(txt, "span", "planfold-todo-time", it.time + "\u2002"); // en space: struck through with the rest when done
     txt.append(it.text);
     inlineEdit(txt, it.plain || it.full, async (v) => { await p.editTodo(path, it, v); this.softRefresh(true); });
+    // a 中转站 row: no star; a calendar icon sends it to the day you pick
+    if (opts.later) {
+      const cal = h(row, "button", "planfold-icon-btn planfold-later-date"); cal.type = "button";
+      cal.setAttr("aria-label", L("Move to a day…", "放到某一天…")); cal.title = L("Move to a day…", "放到某一天…");
+      try { setIcon(cal, "calendar-plus"); } catch (e) {}
+      cal.addEventListener("click", () => pickDay(this, cal, async (d) => { await p.rescheduleTodo(path, it, "day", d, it.time || ""); this.softRefresh(true); }));
+    }
     // the most important one: a small star; hover shows an empty star to set it
-    const star = h(row, "button", "planfold-star" + (it.star ? " is-on" : "")); star.type = "button";
+    const star = opts.later ? null : h(row, "button", "planfold-star" + (it.star ? " is-on" : ""));
+    if (star) star.type = "button";
     const starLabel = it.star ? L("Clear most important", "取消最重要的事") : L("Mark as the most important", "设为最重要的事");
-    star.setAttr("aria-label", starLabel);
-    try { setIcon(star, "star"); } catch (e) {}
     const flip = async () => { await p.setStar(path, it, !it.star); this.softRefresh(true); };
-    star.addEventListener("click", flip);
+    if (star) { star.setAttr("aria-label", starLabel); try { setIcon(star, "star"); } catch (e) {} star.addEventListener("click", flip); }
     const del = h(row, "button", "planfold-del"); del.type = "button";
     del.setAttr("aria-label", L("Delete", "删除")); del.title = L("Delete", "删除");
     try { setIcon(del, "x"); } catch (e) {}
@@ -2138,11 +2439,455 @@ Object.assign(PlanfoldView.prototype, {
     del.addEventListener("click", remove);
     row.addEventListener("contextmenu", (e) => {
       const menu = new obsidian.Menu();
-      menu.addItem((i) => i.setTitle(it.star ? L("Clear most important", "取消最重要") : L("Mark as most important", "设为最重要的事")).setIcon("star").onClick(flip));
+      if (!opts.later) menu.addItem((i) => i.setTitle(it.star ? L("Clear most important", "取消最重要") : L("Mark as most important", "设为最重要的事")).setIcon("star").onClick(flip));
+      if (!isLater) menu.addItem((i) => i.setTitle(L("Move to Later", "放进中转站")).setIcon("inbox").onClick(toLater));
       menu.addItem((i) => i.setTitle(L("Delete", "删除")).setIcon("trash").onClick(async () => { await p.editTodo(path, it, ""); this.softRefresh(true); }));
       menu.showAtMouseEvent(e);
     });
     return row;
+  },
+});
+
+/* =====================================================================
+   Calendar (Pro): the sidebar day/week calendar, the full week view and the month grid.
+   Not included in the free build (see build.sh).
+   ===================================================================== */
+Object.assign(PlanfoldView.prototype, {
+  /** The week calendar. side: the narrow sidebar version — one day's hours, with the week as a strip of dates on top
+      (click a date to show it, drop a to-do on a date to move it there). */
+  async homeCalendar(parent, opts = {}) {
+    const p = this.plugin, H = this.home, side = !!opts.side;
+    if (side && !H.calDay) H.calDay = moment();
+    // sidebar: day (one day's hours + the week as dates), week (all seven days; scrolls sideways until the sidebar is wide
+    // enough) or month (a summary of each day). The full-week tab and Home always show the week.
+    const mode = side ? (["day", "week", "month"].includes(p.settings.sideCalView) ? p.settings.sideCalView : "day") : "week";
+    const single = mode === "day";
+    const wrap = h(parent, "div", "planfold-ff-card planfold-weekcal planfold-mod-calendar" + (side ? " is-side" : "") + ` is-${mode}`);
+    const sunday = p.settings.weekStart === "sunday";
+    const start = rowStartOf(side ? H.calDay : H.calAnchor, sunday), end = start.clone().add(6, "day");
+    const weekLabel = LANG === "zh" ? `${start.format("M月D日")}—${end.format(start.month() === end.month() ? "D日" : "M月D日")}` : `${start.format("MMM D")}—${end.format(start.month() === end.month() ? "D" : "MMM D")}`;
+    // the sidebar needs no "Calendar" title: the tab already says it; Today moves next to the date
+    const head = side ? null : h(wrap, "div", "planfold-weekcal-head");
+    const heading = side ? null : h(head, "div", "planfold-weekcal-heading");
+    if (!side) h(heading, "span", "planfold-ff-kicker", ffKick("CALENDAR", "日历"));
+    const actions = side ? null : h(head, "div", "planfold-weekcal-actions");
+    if (side) {
+      // sidebar: [CALENDAR · Today] / Day·Week·Month / ‹ the date shown ›
+      const seg = h(wrap, "div", "planfold-seg planfold-weekcal-modes"); seg.setAttr("role", "tablist");
+      [["day", L("Day", "日")], ["week", L("Week", "周")], ["month", L("Month", "月")]].forEach(([id, label]) => {
+        const b = h(seg, "button", id === mode ? "is-on" : "", label); b.type = "button"; b.setAttr("role", "tab"); b.setAttr("aria-selected", id === mode ? "true" : "false");
+        b.addEventListener("click", async () => { if (id === mode) return; p.settings.sideCalView = id; H.calScrollTop = null; await p.saveSettings(); this.render(); });
+      });
+      const step = mode === "month" ? "month" : mode === "week" ? "week" : "day";
+      const bar = h(wrap, "div", "planfold-weekcal-period");
+      const go = (name, label, move) => {
+        const b = h(bar, "button", "planfold-icon-btn planfold-weekcal-nav"); b.type = "button"; b.setAttr("aria-label", label); icon(b, name);
+        b.addEventListener("click", () => { H.calDay = moment(H.calDay).add(move, step); H.calScrollTop = null; this.render(); });
+      };
+      const sel = moment(H.calDay);
+      const label = mode === "month" ? dateFmt.month(sel)
+        : mode === "week" ? (LANG === "zh" ? `第${start.isoWeek()}周 · ${weekLabel}` : `W${start.isoWeek()} · ${weekLabel}`)
+        : (LANG === "zh" ? `${sel.format("M月D日")} ${dateFmt.weekday(sel)}` : sel.format("ddd, MMM D"));
+      go("chevron-left", L("Previous", "上一个"), -1);
+      h(bar, "strong", "planfold-weekcal-period-label" + (mode === "day" && sel.isSame(moment(), "day") ? " is-today" : ""), label);
+      go("chevron-right", L("Next", "下一个"), 1);
+      const today = button(bar, L("Today", "今天"), "planfold-weekcal-today", () => { H.calDay = moment(); H.calScrollTop = null; this.render(); });
+      today.disabled = mode === "month" ? moment(H.calDay).isSame(moment(), "month") && moment(H.calDay).isSame(moment(), "day")
+        : mode === "week" ? start.isSame(rowStartOf(moment(), sunday), "day") && moment(H.calDay).isSame(moment(), "day") : moment(H.calDay).isSame(moment(), "day");
+    } else {
+      h(heading, "strong", "planfold-weekcal-range", weekLabel);
+      const nav = (name, label, move) => {
+        const b = h(actions, "button", "planfold-icon-btn planfold-weekcal-nav"); b.type = "button"; b.setAttr("aria-label", label); icon(b, name);
+        b.addEventListener("click", () => { H.calAnchor = moment(H.calAnchor).add(move, "week"); H.calScrollTop = null; this.render(); });
+      };
+      nav("chevron-left", L("Previous week", "上一周"), -1);
+      const today = button(actions, L("Today", "今天"), "planfold-weekcal-today", () => { H.calAnchor = moment(); H.calScrollTop = null; this.render(); });
+      today.disabled = start.isSame(rowStartOf(moment(), sunday), "day");
+      nav("chevron-right", L("Next week", "下一周"), 1);
+      openButton(actions, L("Open week plan", "打开本周计划"), () => this.go("planner", { scope: "week", anchor: start }), true);
+    }
+    if (mode === "month") return this.calendarMonth(wrap);
+
+    const week = [...Array(7)].map((_, i) => start.clone().add(i, "day"));
+    const days = single ? [moment(H.calDay).startOf("day")] : week;
+    const notes = await Promise.all(days.map((d) => p.readNote("day", d)));
+    if (single) {
+      // the week as a strip of dates: click to show that day; drop a to-do here to move it to that day (time kept)
+      const strip = h(wrap, "div", "planfold-weekcal-strip");
+      week.forEach((d) => {
+        const b = h(strip, "button", "planfold-weekcal-date" + (d.isSame(H.calDay, "day") ? " is-on" : "") + (d.isSame(moment(), "day") ? " is-today" : "")); b.type = "button";
+        const w = dateFmt.weekday(d);
+        h(b, "span", "", LANG === "zh" ? w.slice(-1) : w.slice(0, 1)); h(b, "strong", "", d.date());
+        b.dataset.calZone = "date"; b.dataset.date = d.format(DKEY);
+        b.addEventListener("click", () => { if (this._calDragged) return; H.calDay = d.clone(); H.calScrollTop = null; this.render(); });
+      });
+    }
+    const weekNote = await p.readNote("week", start);
+    const pathOf = (note) => (note.file ? note.file.path : note.path);
+    const isToday = (d) => d.isSame(moment(), "day");
+    // a drag that ends on the item it started on must not also count as a click
+    const tap = (fn) => () => { if (!this._calDragged) fn(); };
+    const openDay = (d) => tap(() => this.go("planner", { scope: "day", anchor: d }));
+    // clicking a to-do edits its whole line right where it sits (time first, as in the note); Enter saves
+    const editItem = (getEl) => tap(() => {
+      const el = getEl(), c = el && el._cal, host = el && el.parentElement;
+      if (!c || !host || host.querySelector(".planfold-weekcal-input.is-edit")) return;
+      const r = el.getBoundingClientRect();
+      const input = h(host, "textarea", "planfold-weekcal-input is-edit " + [...el.classList].filter((c) => /^(planfold-weekcal-(event|untimed|chip)|is-lane|is-star)$/.test(c)).map((c) => "as-" + c.replace("planfold-weekcal-", "")).join(" "));
+      input.rows = 1;
+      host.insertBefore(input, el);
+      input.style.cssText = el.style.cssText; // same grid place and lane
+      if (!el.matches(".planfold-weekcal-event")) { input.style.width = `${Math.max(r.width, 160)}px`; input.style.height = `${r.height}px`; }
+      input.value = c.it.plain || c.it.text;
+      input.placeholder = TIME_EXAMPLE();
+      el.addClass("is-cal-editing");
+      let done = false;
+      const finish = async (save) => {
+        if (done) return; done = true;
+        const v = input.value.trim();
+        // nothing changed: just put the item back, no redraw (and no jump)
+        if (!save || v === (c.it.plain || c.it.text)) { input.remove(); el.removeClass("is-cal-editing"); return; }
+        await p.editTodo(c.path, c.it, v);
+        this.render();
+      };
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); finish(true); }
+        else if (e.key === "Escape") { e.preventDefault(); finish(false); }
+      });
+      input.addEventListener("blur", () => finish(true));
+      setTimeout(() => { input.focus(); input.select(); }, 0);
+    });
+
+    // inline "new to-do" field: Enter saves, Esc or leaving it empty cancels
+    const newTodo = (host, scope, m, time, cls = "") => {
+      const input = h(host, "input", "planfold-weekcal-input " + cls); input.type = "text";
+      input.placeholder = time ? `${time} ${L("New to-do", "新待办")}` : TIME_EXAMPLE();
+      let done = false;
+      const finish = async (save) => {
+        if (done) return; done = true;
+        const text = input.value.trim();
+        if (save && text) { await p.addTodo(scope, m, time ? `${time} ${text}` : text); this.render(); return; }
+        // left empty: tidy up in place, no redraw (a redraw would jump the page)
+        input.remove();
+        if (host.matches(".planfold-weekcal-preview")) host.remove();
+        if (scope === "week" && !wrap.querySelector(".planfold-weekcal-chip.is-add")) this.render(); // brings the + back
+      };
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); finish(true); }
+        else if (e.key === "Escape") { e.preventDefault(); finish(false); }
+      });
+      input.addEventListener("blur", () => finish(true));
+      setTimeout(() => input.focus(), 0);
+      return input;
+    };
+
+    // the week's backlog belongs to the full week view; the sidebar is just the day's schedule
+    if (!side) {
+      const backlogItems = weekNote.items.filter((it) => !it.done);
+      const backlog = h(wrap, "div", "planfold-weekcal-backlog");
+      backlog.dataset.calZone = "week";
+      h(backlog, "span", "planfold-weekcal-backlog-label", L("THIS WEEK", "本周待安排") + ` · ${pad2(backlogItems.length)}`);
+      const chips = h(backlog, "div", "planfold-weekcal-chips");
+      const chipLimit = H.calExpand ? Infinity : 6;
+      backlogItems.slice(0, chipLimit).forEach((it) => {
+        const b = button(chips, it.text, "planfold-weekcal-chip", editItem(() => b));
+        b.title = it.text;
+        if (it.star) b.addClass("is-star");
+        b._cal = { path: pathOf(weekNote), it, scope: "week" };
+      });
+      if (backlogItems.length > chipLimit) button(chips, `+${backlogItems.length - chipLimit}`, "planfold-weekcal-chip is-more", () => { H.calExpand = true; this.render(); });
+      const addWeek = button(chips, "", "planfold-weekcal-chip is-add", () => { addWeek.remove(); newTodo(chips, "week", start, "", "is-chip"); });
+      icon(addWeek, "plus"); addWeek.setAttr("aria-label", L("Add a to-do for this week", "添加本周待办")); addWeek.title = L("Add a to-do for this week", "添加本周待办");
+    }
+
+    const scroller = h(wrap, "div", "planfold-weekcal-scroll"); scroller.tabIndex = 0; scroller.setAttr("aria-label", L("Weekly schedule, scroll horizontally", "周日历，可横向滚动"));
+    const board = h(scroller, "div", "planfold-weekcal-board");
+    board.style.setProperty("--wc-days", String(days.length));
+    h(board, "div", "planfold-weekcal-corner", single ? "" : `W${start.isoWeek()}`);
+    const heads = days.map((d) => {
+      const day = h(board, "button", "planfold-weekcal-day" + (isToday(d) ? " is-today" : "")); day.type = "button";
+      h(day, "span", "", dateFmt.weekday(d)); h(day, "strong", "", d.date());
+      day.addEventListener("click", openDay(d));
+      return day;
+    });
+
+    h(board, "div", "planfold-weekcal-all-label", L("All day", "全天"));
+    const untimedLimit = H.calExpand ? Infinity : 3;
+    notes.forEach((note, index) => {
+      const cell = h(board, "div", "planfold-weekcal-all" + (isToday(days[index]) ? " is-today" : ""));
+      cell.dataset.calZone = "untimed"; cell.dataset.day = String(index);
+      const untimed = note.items.filter((it) => !it.time), items = [...untimed.filter((it) => !it.done), ...untimed.filter((it) => it.done)];
+      items.slice(0, untimedLimit).forEach((it) => {
+        const b = button(cell, "", "planfold-weekcal-untimed" + (it.done ? " is-done" : ""), editItem(() => b));
+        if (it.done) h(b, "span", "planfold-weekcal-check");
+        b.append((it.star ? "★ " : "") + it.text);
+        b.title = it.text;
+        b._cal = { path: pathOf(note), it, scope: "day", day: index };
+      });
+      if (items.length > untimedLimit) button(cell, `+${items.length - untimedLimit}`, "planfold-weekcal-more", () => { H.calExpand = true; this.render(); });
+      cell.addEventListener("click", (e) => {
+        if (e.target !== cell || this._calDragged || cell.querySelector(".planfold-weekcal-input")) return;
+        newTodo(cell, "day", days[index], "");
+      });
+    });
+
+    const parseClock = (value) => {
+      const match = String(value || "").match(/^(\d{1,2}):(\d{2})(?:\s*[-–—~～至]\s*(\d{1,2}):(\d{2}))?/);
+      if (!match) return null;
+      const from = Math.min(1439, Number(match[1]) * 60 + Number(match[2]));
+      let to = match[3] == null ? from + 60 : Math.min(1440, Number(match[3]) * 60 + Number(match[4]));
+      if (to <= from) to = Math.min(1440, from + 60);
+      return { from, to };
+    };
+    const clock = (min) => `${pad(Math.floor(min / 60))}:${pad(min % 60)}`;
+    const timed = [];
+    notes.forEach((note, day) => note.items.forEach((it) => { const time = parseClock(it.time); if (time) timed.push({ note, day, it, time }); }));
+    // the whole day; the calendar scrolls inside itself (opens at 8:00, then remembers where you were)
+    const firstHour = 0, lastHour = 24;
+    const slots = Math.max(2, (lastHour - firstHour) * 2);
+    const slotMin = (slot) => firstHour * 60 + slot * 30;
+    const timeline = h(board, "div", "planfold-weekcal-timeline");
+    timeline.dataset.calZone = "timed";
+    timeline.style.setProperty("--t-weekcal-slots", String(slots)); timeline.style.setProperty("--wc-days", String(days.length));
+    for (let hour = firstHour; hour < lastHour; hour++) {
+      const row = (hour - firstHour) * 2 + 1;
+      const label = h(timeline, "span", "planfold-weekcal-hour", `${pad(hour)}:00`); label.style.gridRow = `${row} / span 2`;
+      days.forEach((d, day) => {
+        const line = h(timeline, "span", "planfold-weekcal-line" + (isToday(d) ? " is-today" : ""));
+        line.style.gridColumn = String(day + 2); line.style.gridRow = `${row} / span 2`;
+      });
+    }
+    const place = (el, day, from, span) => { el.style.gridColumn = String(day + 2); el.style.gridRow = `${from + 1} / span ${Math.max(1, Math.min(span, slots - from))}`; };
+    // overlapping events on the same day sit side by side, so each one's edges stay reachable
+    for (let day = 0; day < days.length; day++) {
+      const list = timed.filter((x) => x.day === day).sort((a, b) => a.time.from - b.time.from || b.time.to - a.time.to);
+      let group = [], lanes = [], groupEnd = -1;
+      const close = () => { group.forEach((x) => { x.lanes = lanes.length; }); group = []; lanes = []; };
+      for (const x of list) {
+        if (x.time.from >= groupEnd) { close(); groupEnd = -1; }
+        let lane = lanes.findIndex((end) => end <= x.time.from);
+        if (lane < 0) { lane = lanes.length; lanes.push(0); }
+        lanes[lane] = x.time.to; x.lane = lane; group.push(x); groupEnd = Math.max(groupEnd, x.time.to);
+      }
+      close();
+    }
+    timed.forEach(({ note, day, it, time, lane, lanes }) => {
+      const startSlot = Math.max(0, Math.round((time.from - firstHour * 60) / 30));
+      const span = Math.max(1, Math.ceil((time.to - time.from) / 30));
+      const event = h(timeline, "button", "planfold-weekcal-event" + (it.star ? " is-star" : "") + (it.done ? " is-done" : "")); event.type = "button";
+      place(event, day, startSlot, span);
+      if (span <= 1) event.addClass("is-short"); // half an hour: title and time share one line
+      if (lanes > 1) { event.addClass("is-lane"); event.style.setProperty("--t-lane", String(lane)); event.style.setProperty("--t-lanes", String(lanes)); }
+      const title = h(event, "strong", "");
+      if (it.done) h(title, "span", "planfold-weekcal-check");
+      title.append((it.star ? "★ " : "") + it.text);
+      h(event, "span", "", span <= 1 ? it.time.split(/[-–~]/)[0].trim() : it.time); // a half-hour slot shows only its start, leaving room for the title
+      event.title = `${it.text} · ${it.time}`;
+      event.addEventListener("click", editItem(() => event));
+      event._cal = { path: pathOf(note), it, scope: "day", day, from: startSlot, span };
+      h(event, "span", "planfold-weekcal-grow").setAttr("aria-hidden", "true");
+      h(event, "span", "planfold-weekcal-grow is-top").setAttr("aria-hidden", "true");
+    });
+
+    const slotPx = timeline.getBoundingClientRect().height / slots || 32;
+    // opens at the earliest timed to-do in view; with none, at 8:00 (scroll up for earlier hours). After that it stays where you left it.
+    const startHour = timed.length ? Math.floor(Math.min(...timed.map((x) => x.time.from)) / 60) : 8;
+    const pinned = single ? board.querySelector(".planfold-weekcal-all").getBoundingClientRect().height : heads[0].getBoundingClientRect().height;
+    const atStart = timeline.getBoundingClientRect().top - scroller.getBoundingClientRect().top + (startHour - firstHour) * 2 * slotPx - pinned;
+    scroller.scrollTop = H.calScrollTop != null ? H.calScrollTop : atStart;
+    scroller.addEventListener("scroll", () => { H.calScrollTop = scroller.scrollTop; });
+    this.calendarDrag(wrap, { days, heads, timeline, slots, slotMin, clock, place, newTodo, start, scroller });
+  },
+
+  /** Sidebar month: one cell per day — date, mood as a colour, a thin bar for habits (today is marked by its own highlight).
+      Click a day for its summary underneath: mood, the most important thing, to-dos, habits, the first line written. */
+  async calendarMonth(wrap) {
+    const p = this.plugin, H = this.home, habits = p.habits(), sunday = p.settings.weekStart === "sunday";
+    const sel = moment(H.calDay).startOf("day"), first = sel.clone().startOf("month"), last = sel.clone().endOf("month");
+    const gridStart = rowStartOf(first, sunday), weeks = Math.ceil((last.diff(gridStart, "day") + 1) / 7);
+    const infos = await p.rangeInfo(gridStart, gridStart.clone().add(weeks * 7 - 1, "day"));
+    const grid = h(wrap, "div", "planfold-mcal");
+    infos.slice(0, 7).forEach((x) => { const w = dateFmt.weekday(x.d); h(grid, "span", "planfold-mcal-dow", LANG === "zh" ? w.slice(-1) : w.slice(0, 1)); });
+    for (const info of infos) {
+      const d = info.d;
+      const cell = h(grid, "button", "planfold-mcal-day" + (d.month() !== sel.month() ? " is-out" : "") + (d.isSame(moment(), "day") ? " is-today" : "") + (d.isSame(sel, "day") ? " is-on" : "") + (d.isAfter(moment(), "day") ? " is-future" : ""));
+      cell.type = "button"; cell.setAttr("aria-label", dateFmt.short ? dateFmt.short(d) : d.format(DKEY));
+      h(cell, "span", "planfold-mcal-num", d.date());
+      const marks = h(cell, "span", "planfold-mcal-marks");
+      const md = h(marks, "span", "planfold-mcal-mood" + (info.mood ? ` m${info.mood}` : ""));
+      if (info.mood) md.title = L(`Mood ${info.mood} of 5`, `心情 ${info.mood} / 5`);
+      const doneH = habits.filter((g) => info.habits && info.habits[g.key]).length;
+      if (doneH) { const bar = h(cell, "span", "planfold-mcal-bar"); h(bar, "span", "").style.width = `${Math.round((doneH / habits.length) * 100)}%`; }
+      cell.addEventListener("click", () => { H.calDay = d.clone(); this.render(); });
+    }
+
+    // what the marks mean: mood low → high, and the habit line
+    const legend = h(wrap, "div", "planfold-mcal-legend");
+    h(legend, "span", "", L("Mood", "心情"));
+    h(legend, "span", "planfold-mcal-meta", L("low", "低"));
+    for (let i = 1; i <= 5; i++) h(legend, "span", `planfold-mcal-mood m${i}`);
+    h(legend, "span", "planfold-mcal-meta", L("high", "高"));
+    if (habits.length) { h(legend, "span", "planfold-mcal-legend-bar"); h(legend, "span", "planfold-mcal-meta", L("habits done", "习惯完成")); }
+
+    // the chosen day, summed up
+    const note = await p.readNote("day", sel), info = infos.find((x) => x.d.isSame(sel, "day")) || {};
+    const box = h(wrap, "div", "planfold-mcal-detail");
+    const dh = h(box, "div", "planfold-ff-head");
+    h(dh, "span", "planfold-mcal-title", LANG === "zh" ? `${sel.format("M月D日")} ${dateFmt.weekday(sel)}` : sel.format("ddd, MMM D"));
+    openButton(dh, L("Open this day", "打开这一天"), () => this.go("planner", { scope: "day", anchor: sel }), true);
+    if (info.mood) { const m = h(box, "div", "planfold-mcal-row"); h(m, "span", `planfold-mcal-mood is-big m${info.mood}`); h(m, "span", "planfold-mcal-meta", L("Mood", "心情")); }
+    const star = note.items.find((i) => i.star);
+    if (star) { const st = h(box, "div", "planfold-mcal-focus" + (star.done ? " is-done" : "")); h(st, "span", "planfold-ff-kicker", L("MOST IMPORTANT", "最重要的事")); h(st, "div", "planfold-mcal-focus-text", (star.time ? star.time + " " : "") + star.text); }
+    const rest = note.items.filter((i) => i !== star);
+    if (rest.length) {
+      const list = h(box, "div", "planfold-mcal-list");
+      h(list, "span", "planfold-ff-kicker", L("TO-DO", "待办"));
+      [...rest.filter((i) => !i.done), ...rest.filter((i) => i.done)].forEach((it) => {
+        const r = h(list, "button", "planfold-mcal-todo" + (it.done ? " is-done" : "")); r.type = "button";
+        h(r, "span", "planfold-check" + (it.done ? " is-on" : ""));
+        const t = h(r, "span", "planfold-mcal-todo-text");
+        if (it.time) h(t, "span", "planfold-todo-time", it.time + "\u2002");
+        t.append(it.text);
+        r.addEventListener("click", async () => { await p.toggleTodo(note.path, it); this.render(); });
+      });
+    }
+    const anyHabit = !!(info.habits && Object.values(info.habits).some(Boolean));
+    if (habits.length && (anyHabit || sel.isSame(moment(), "day"))) {
+      const hb = h(box, "div", "planfold-mcal-list");
+      h(hb, "span", "planfold-ff-kicker", L("HABITS", "习惯"));
+      const row = h(hb, "div", "planfold-mcal-habits");
+      habits.forEach((g) => { const on = !!(info.habits && info.habits[g.key]); h(row, "span", "planfold-mcal-habit" + (on ? " is-on" : ""), g.name); });
+    }
+    if (info.first) { const w = h(box, "div", "planfold-mcal-list"); h(w, "span", "planfold-ff-kicker", L("WRITTEN", "记下的")); h(w, "div", "planfold-mcal-first", info.first); }
+    if (!note.items.length && !info.mood && !info.first && !anyHabit) h(box, "div", "planfold-mcal-empty", L("Nothing recorded this day.", "这一天还没有记录。"));
+  },
+
+  /** Calendar pointer gestures: move a to-do (to a day, a time or this week's list), stretch its end time,
+      or sweep empty time to add one. Pointer events rather than HTML drag, so the time preview can follow. */
+  calendarDrag(wrap, g) {
+    const p = this.plugin, { days, heads, timeline, slots, slotMin, clock, place, newTodo, start, scroller } = g;
+    // one day (sidebar): anywhere on the hours is that day
+    const dayAt = (x) => heads.length === 1 ? 0 : heads.findIndex((el) => { const r = el.getBoundingClientRect(); return x >= r.left && x < r.right; });
+    const slotAt = (y) => { const r = timeline.getBoundingClientRect(); return Math.max(0, Math.min(slots - 1, Math.floor((y - r.top) / (r.height / slots)))); };
+    const range = (from, span) => `${clock(slotMin(from))}-${clock(slotMin(from + span))}`;
+    let s = null, preview = null, ghost = null;
+    const clearMarks = () => wrap.querySelectorAll(".is-cal-target").forEach((el) => el.removeClass("is-cal-target"));
+    const showPreview = (day, from, span) => {
+      if (!preview) preview = h(timeline, "div", "planfold-weekcal-preview");
+      place(preview, day, from, span); preview.setText(range(from, span));
+    };
+    const hidePreview = () => { if (preview) { preview.remove(); preview = null; } };
+    // near the calendar's own top/bottom edge: scroll the hours; near the page's: scroll the page
+    const autoscroll = (y) => {
+      for (const box of [scroller, this.body]) {
+        if (!box) continue;
+        const r = box.getBoundingClientRect(), before = box.scrollTop;
+        if (y < r.top + 48) box.scrollTop -= 14; else if (y > r.bottom - 48) box.scrollTop += 14;
+        if (box.scrollTop !== before) return;
+      }
+    };
+    // where would a drop land? { zone: "week" } | { zone: "untimed", day } | { zone: "timed", day, from }
+    const targetAt = (x, y) => {
+      const el = document.elementFromPoint(x, y), zone = el && el.closest && el.closest("[data-cal-zone]");
+      if (!zone || !wrap.contains(zone)) return null;
+      if (zone.dataset.calZone === "week") return { zone: "week", el: zone };
+      if (zone.dataset.calZone === "date") return { zone: "date", date: moment(zone.dataset.date, DKEY), el: zone };
+      if (zone.dataset.calZone === "untimed") return { zone: "untimed", day: Number(zone.dataset.day), el: zone };
+      const day = dayAt(x);
+      return day < 0 ? null : { zone: "timed", day, from: Math.max(0, Math.min(slots - s.span, slotAt(y) - s.grab)) };
+    };
+
+    wrap.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0 || e.target.closest(".planfold-weekcal-input")) return;
+      const item = e.target.closest(".planfold-weekcal-chip, .planfold-weekcal-untimed, .planfold-weekcal-event");
+      // an event's top or bottom 8px stretch it; worked out from the pointer, not from which child was hit
+      let edge = "";
+      if (item && item.matches(".planfold-weekcal-event")) {
+        const r = item.getBoundingClientRect(), zone = Math.min(8, r.height / 4);
+        edge = e.clientY >= r.bottom - zone ? "grow" : e.clientY <= r.top + zone ? "top" : "";
+      }
+      if (item && item._cal) {
+        const c = item._cal, span = c.span || 2;
+        const grab = c.from != null && !edge ? Math.max(0, slotAt(e.clientY) - c.from) : 0;
+        s = { mode: edge || "move", el: item, c, span, grab, x: e.clientX, y: e.clientY, moved: false };
+      } else if (e.target.classList.contains("planfold-weekcal-line")) {
+        const day = dayAt(e.clientX); if (day < 0) return;
+        s = { mode: "create", day, anchor: slotAt(e.clientY), x: e.clientX, y: e.clientY, moved: false };
+      } else return;
+      e.preventDefault();
+    });
+
+    let near = null;
+    wrap.addEventListener("pointermove", (e) => {
+      if (!s) {
+        // show the resize cursor on an event's top/bottom edge
+        const ev = e.target.closest && e.target.closest(".planfold-weekcal-event");
+        if (near && near !== ev) { near.removeClass("is-near-edge"); near = null; }
+        if (ev) { const r = ev.getBoundingClientRect(), zone = Math.min(8, r.height / 4); ev.toggleClass("is-near-edge", e.clientY >= r.bottom - zone || e.clientY <= r.top + zone); near = ev; }
+        return;
+      }
+      if (!s.moved && Math.hypot(e.clientX - s.x, e.clientY - s.y) < 5) return;
+      if (!s.moved) {
+        // capture only once it is really a drag, so a plain click still reaches the button under it
+        s.moved = true; wrap.addClass("is-cal-dragging"); wrap.setPointerCapture(e.pointerId);
+        if (s.mode === "move") {
+          s.el.addClass("is-cal-source");
+          ghost = h(this.root, "div", "planfold-weekcal-ghost", s.c.it.text);
+        }
+      }
+      autoscroll(e.clientY);
+      if (s.mode === "create") {
+        const at = slotAt(e.clientY), from = Math.min(at, s.anchor), span = Math.abs(at - s.anchor) + 1;
+        s.from = from; s.span = span; showPreview(s.day, from, span);
+        return;
+      }
+      if (s.mode === "grow") {
+        s.span = Math.max(1, slotAt(e.clientY) - s.c.from + 1);
+        showPreview(s.c.day, s.c.from, s.span);
+        return;
+      }
+      if (s.mode === "top") {
+        const endSlot = s.c.from + s.c.span, from = Math.min(endSlot - 1, slotAt(e.clientY));
+        s.from = from; s.span = endSlot - from;
+        showPreview(s.c.day, from, s.span);
+        return;
+      }
+      ghost.style.left = `${e.clientX + 12}px`; ghost.style.top = `${e.clientY + 8}px`;
+      clearMarks();
+      s.target = targetAt(e.clientX, e.clientY);
+      if (s.target && s.target.zone === "timed") showPreview(s.target.day, s.target.from, s.span);
+      else { hidePreview(); if (s.target) s.target.el.addClass("is-cal-target"); }
+    });
+
+    const end = async (e, cancelled) => {
+      if (!s) return;
+      const st = s; s = null;
+      wrap.removeClass("is-cal-dragging"); clearMarks();
+      if (ghost) { ghost.remove(); ghost = null; }
+      if (st.el) st.el.removeClass("is-cal-source");
+      if (!st.moved) {
+        hidePreview();
+        // a plain click on empty time adds a one-hour to-do there
+        if (st.mode === "create" && !cancelled) { showPreview(st.day, st.anchor, 2); const host = preview; preview = null; host.empty(); newTodo(host, "day", days[st.day], range(st.anchor, 2)); }
+        return;
+      }
+      this._calDragged = true; setTimeout(() => { this._calDragged = false; }, 0);
+      if (cancelled) { hidePreview(); return; }
+      if (st.mode === "create") { const host = preview; preview = null; host.empty(); newTodo(host, "day", days[st.day], range(st.from, st.span)); return; }
+      hidePreview();
+      const { path, it } = st.c;
+      if (st.mode === "grow") await p.rescheduleTodo(path, it, "day", days[st.c.day], range(st.c.from, st.span));
+      else if (st.mode === "top") await p.rescheduleTodo(path, it, "day", days[st.c.day], range(st.from, st.span));
+      else if (!st.target) return;
+      else if (st.target.zone === "week") await p.rescheduleTodo(path, it, "week", start, "");
+      else if (st.target.zone === "date") await p.rescheduleTodo(path, it, "day", st.target.date, it.time || "");
+      else if (st.target.zone === "untimed") await p.rescheduleTodo(path, it, "day", days[st.target.day], "");
+      else await p.rescheduleTodo(path, it, "day", days[st.target.day], range(st.target.from, st.span));
+      this.softRefresh(true);
+    };
+    wrap.addEventListener("pointerup", (e) => end(e, false));
+    wrap.addEventListener("pointercancel", (e) => end(e, true));
+    wrap.addEventListener("keydown", (e) => { if (e.key === "Escape" && s) { e.preventDefault(); end(e, true); } });
   },
 });
 
@@ -2190,9 +2935,11 @@ function periodHeader(view, parent, scope, anchor, scopes, onChange) {
 }
 
 Object.assign(PlanfoldView.prototype, {
-  async renderPlanner(inner) {
+  async renderPlanner(inner, opts = {}) {
     const p = this.plugin, st = this.pl, scope = st.scope, anchor = moment(st.anchor);
-    periodHeader(this, inner, scope, anchor, SCOPES, (sc, m) => { st.scope = sc; st.anchor = m; this.render(); });
+    if (!opts.noHeader) periodHeader(this, inner, scope, anchor, SCOPES, (sc, m) => { st.scope = sc; st.anchor = m; this.render(); });
+    // the day is free; week, month and year plans are Pro. The day/week/month/year switch above stays usable.
+    if (PRO && scope !== "day" && !p.license && !p.settings.plansFree && !opts.noHeader) return this.renderPaywall(inner, "plan", (el) => this.renderPlanner(el, { noHeader: true }));
     const grid = h(inner, "div", "planfold-planner-grid");
     const left = h(grid, "div", "planfold-planner-left"), right = h(grid, "div", "planfold-planner-right");
     let note = await p.readNote(scope, anchor);
@@ -2235,7 +2982,7 @@ Object.assign(PlanfoldView.prototype, {
     const content = h(np, "div", "planfold-note-content" + (old ? " is-dimmed" : ""));
     if (scope === "day") { this.moodRow(content, anchor); this.noteHabits(content, anchor); }
     if (skipped) { h(content, "p", "planfold-muted planfold-note-skip", L("This note doesn't have Planfold sections. Change this in Settings → Planfold → Note paths.", "这篇笔记没有 Planfold 段落。可以在 设置 → Planfold → 笔记路径 里修改。")); return; }
-    const tpl = scope === "day" ? p.dayFields() : p.settings.templates[scope] || []; // a day always ends with its Notes section
+    const tpl = p.scopeFields(scope); // a day (and, in Pro, a week) always ends with its Notes section
     for (const f of tpl) this.fieldBox(content, scope, anchor, f, note.fields[f.id] || "");
     // week / month / year: sections already written in this note but not in the template still show (and stay editable)
     let written = 0;
@@ -2257,20 +3004,56 @@ Object.assign(PlanfoldView.prototype, {
   },
 
   /** One period's to-do list as a labelled card (Home's style). It is also a drop target: a to-do dragged here moves into this note. */
-  async planList(parent, scope, anchor, note) {
+  async planList(parent, scope, anchor, note, opts = {}) {
     const p = this.plugin, st = this.pl;
     note = note || await p.readNote(scope, anchor);
     const current = moment(anchor).isSame(moment(), scope === "week" ? "isoWeek" : scope);
+    const label = current ? thisLabel(scope) : scopeTitle(scope, anchor).split(" · ")[0];
     const group = h(parent, "div", "planfold-plan-group planfold-ff-todos is-primary planfold-todos is-planner");
     const head = h(group, "div", "planfold-plan-subhead");
-    h(head, "span", "planfold-plan-sublabel", current ? thisLabel(scope) : scopeTitle(scope, anchor).split(" · ")[0]);
+    h(head, "span", "planfold-plan-sublabel", label);
     if (scope !== st.scope) openButton(head, L(`Open ${SCOPE_LABEL()[scope].toLowerCase()}`, `打开${SCOPE_LABEL()[scope]}`), () => { st.scope = scope; st.anchor = moment(anchor); this.render(); }, true);
     const items = note.items;
     [...items.filter((i) => !i.done), ...items.filter((i) => i.done)].forEach((it) => this.todoRow(group, note.path, it));
     addInput(group, L("Add a to-do", "添加待办"), async (v) => { await p.addTodo(scope, anchor, v); this.softRefresh(true); }, scope === "day" ? TIME_EXAMPLE() : "");
+    if (opts.later !== false) await this.laterStation(group, scope, anchor, current ? label : L(`this ${SCOPE_LABEL()[scope].toLowerCase()}`, `这${scope === "day" ? "天" : SCOPE_LABEL()[scope]}`), head);
     this.planDrop(group, scope, anchor, note.path);
     (this._assignTargets = this._assignTargets || []).push({ label: current ? thisLabel(scope) : scopeTitle(scope, anchor).split(" · ")[0], scope, m: moment(anchor), path: note.path });
     return group;
+  },
+
+  /** 中转站 (Later): to-dos waiting for a day, kept in Planfold/Later.md. Its door is one quiet icon (with a count) at the
+      right of the list's head: click it to show the waiting to-dos under the list, drop a to-do on it to park it there.
+      While a to-do is dragged, a drop zone also appears under the list. */
+  async laterStation(parent, scope, anchor, where, headEl) {
+    const p = this.plugin, note = await p.readNote("later"), items = note.items, path = note.path;
+    const open = !!this.laterOpen && items.length > 0;
+    const toggle = () => { if (!items.length) return; this.laterOpen = !open; this.render(); };
+    if (headEl) {
+      const door = h(headEl, "button", "planfold-later-door" + (open ? " is-on" : "") + (items.length ? "" : " is-empty")); door.type = "button";
+      const t = items.length ? L("Later", "中转站") : L("Later — drag a to-do here to keep it for another day", "中转站：把待办拖到这里，留到别的日子");
+      door.setAttr("aria-label", t); door.title = t; door.setAttr("aria-expanded", open ? "true" : "false");
+      try { setIcon(h(door, "span", "planfold-later-icon"), "inbox"); } catch (e) {}
+      door.addEventListener("click", toggle);
+      this.planDrop(door, "later", moment(), path);
+      headEl.insertBefore(door, headEl.querySelector(".planfold-open-action"));
+    }
+    const box = h(parent, "div", "planfold-later" + (open ? " is-open" : " is-zone"));
+    // a 中转站 row dropped back onto the 中转站 stays put (the day list around it would otherwise take it)
+    box.addEventListener("dragover", (e) => { const d = this._drag; if (d && d.path === path) e.stopPropagation(); });
+    box.addEventListener("drop", (e) => { const d = this._drag; if (d && d.path === path) e.stopPropagation(); });
+    this.planDrop(box, "later", moment(), path);
+    const bar = h(box, "div", "planfold-later-bar");
+    if (!open) { const z = h(bar, "div", "planfold-later-zone"); try { setIcon(h(z, "span", "planfold-later-icon"), "inbox"); } catch (e) {} h(z, "span", "", L("Drop here to keep it for later", "拖到这里，先放进中转站")); return box; }
+    const chip = h(bar, "button", "planfold-later-chip"); chip.type = "button";
+    chip.setAttr("aria-expanded", "true"); chip.title = L("Collapse", "收起");
+    h(chip, "span", "planfold-later-name", L("Later", "中转站"));
+    try { setIcon(h(chip, "span", "planfold-later-chev"), "chevron-up"); } catch (e) {}
+    chip.addEventListener("click", toggle);
+    const undone = items.filter((i) => !i.done);
+    const list = h(box, "div", "planfold-later-list planfold-todos");
+    [...undone, ...items.filter((i) => i.done)].forEach((it) => this.todoRow(list, path, it, { later: true }));
+    return box;
   },
 
   /** The parts of a period, one compact row each — a week's days, a month's weeks, a year's months — so to-dos can be handed out by dragging */
@@ -2286,7 +3069,6 @@ Object.assign(PlanfoldView.prototype, {
     const card = h(parent, "div", "planfold-plan-group planfold-parts");
     const head = h(card, "div", "planfold-plan-subhead");
     h(head, "span", "planfold-plan-sublabel", LABEL[child]);
-    h(head, "span", "planfold-parts-hint", L("drag to-dos here to plan them", "把左边的待办拖进来分配"));
     parts.forEach((m, i) => {
       const note = notes[i], current = m.isSame(moment(), child === "week" ? "isoWeek" : child);
       const row = h(card, "div", "planfold-part" + (current ? " is-current" : ""));
@@ -2356,7 +3138,7 @@ Object.assign(PlanfoldView.prototype, {
     const p = this.plugin;
     const b = h(parent, "div", "planfold-banner");
     h(b, "strong", "", L("This note was written before Planfold.", "这篇笔记是在安装 Planfold 之前写的。"));
-    h(b, "p", "planfold-muted", L(`Add the Planfold sections (${[this.plugin.todoLabel(), ...(p.settings.templates[scope] || []).map((f) => f.label)].join(", ")}) at the end? What you wrote stays exactly as it is.`, `要在文末加入 Planfold 的段落（${[this.plugin.todoLabel(), ...(p.settings.templates[scope] || []).map((f) => f.label)].join("、")}）吗？你写过的内容不会改动。`));
+    h(b, "p", "planfold-muted", L(`Add the Planfold sections (${[this.plugin.todoLabel(), ...p.scopeFields(scope).map((f) => f.label)].join(", ")}) at the end? What you wrote stays exactly as it is.`, `要在文末加入 Planfold 的段落（${[this.plugin.todoLabel(), ...p.scopeFields(scope).map((f) => f.label)].join("、")}）吗？你写过的内容不会改动。`));
     const row = h(b, "div", "planfold-row");
     button(row, L("Add Planfold sections", "加入 Planfold 段落"), "is-primary", async () => { await p.appendPlanfold(note.file, scope); p.dayCache.delete(note.path); setTimeout(() => this.render(), 150); });
     button(row, L("Not for this note", "这篇不用"), "", async () => { p.settings.oldNoteSkip.push(note.path); await p.saveSettings(); this.render(); });
@@ -2455,6 +3237,322 @@ Object.assign(PlanfoldView.prototype, {
     preview.addEventListener("click", (e) => { if (!e.target.closest("a")) showEditor(); });
     preview.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); showEditor(); } });
     showPreview();
+  },
+});
+
+/* =====================================================================
+   Review (read-only): Month and Year
+   ===================================================================== */
+function modeMood(list) {
+  const c = [0, 0, 0, 0, 0, 0];
+  list.forEach((x) => { if (x.mood) c[x.mood]++; });
+  const n = c.reduce((a, b) => a + b, 0);
+  if (n < 3) return 0;
+  let best = 0;
+  for (let i = 1; i <= 5; i++) if (c[i] >= c[best]) best = i; // tie → higher
+  return c[best] >= 2 ? best : 0; // three different moods once each says nothing
+}
+const goodShare = (list) => { const m = list.filter((x) => x.mood); return m.length ? m.filter((x) => x.mood >= 4).length / m.length : 0; };
+function longestRun(bools) { let best = 0, cur = 0; for (const b of bools) { cur = b ? cur + 1 : 0; best = Math.max(best, cur); } return best; }
+function habitGoal(list, g) {
+  const target = Math.max(1, Math.min(7, parseInt(g.target) || 7));
+  const weeks = {};
+  list.forEach((x) => { const k = x.d.format("GGGG-[W]WW"); (weeks[k] = weeks[k] || []).push(x); });
+  const expected = Object.values(weeks).reduce((sum, days) => sum + Math.min(target, days.length), 0);
+  const done = list.filter((x) => x.habits[g.key]).length;
+  return { target, expected, done, rate: expected ? Math.min(1, done / expected) : 0 };
+}
+/** Results first: one main number with a plain sentence, then up to three quieter facts. */
+function summary(parent, main, facts) {
+  const box = h(parent, "div", "planfold-summary");
+  const m = h(box, "div", "planfold-summary-main");
+  const big = h(m, "div", "planfold-summary-big");
+  h(big, "span", "planfold-summary-num", main.num);
+  h(big, "span", "planfold-summary-of", main.of);
+  const bar = h(m, "div", "planfold-bar is-summary");
+  h(bar, "span").style.width = `${Math.round(Math.max(0, Math.min(1, main.rate)) * 100)}%`;
+  h(m, "p", "planfold-summary-line", main.line);
+  const list = h(box, "div", "planfold-summary-facts");
+  for (const f of facts) {
+    const r = h(list, "div", "planfold-fact");
+    h(r, "div", "planfold-fact-label", f.label);
+    const v = h(r, "div", "planfold-fact-value");
+    if (f.dot) h(v, "span", `planfold-dot m${f.dot} is-static`);
+    if (f.value) h(v, "span", "", f.value);
+    if (!f.dot && !f.value) h(v, "span", "planfold-fact-none", "—");
+    if (typeof f.sub === "function") f.sub(h(r, "div", "planfold-fact-sub"));
+    else if (f.sub) h(r, "div", "planfold-fact-sub", f.sub);
+  }
+  return box;
+}
+/** Nothing recorded yet: say what will appear here and offer the one next step. */
+function emptyState(view, parent, title, text, action, label) {
+  const e = h(parent, "div", "planfold-empty-state");
+  h(e, "h2", "planfold-empty-title", title);
+  h(e, "p", "planfold-empty-text", text);
+  if (action) button(e, label, "is-primary", action);
+  return e;
+}
+
+Object.assign(PlanfoldView.prototype, {
+  async renderReview(inner) {
+    const st = this.rv;
+    periodHeader(this, inner, st.scope, st.anchor, ["month", "year"], (sc, m) => { st.scope = sc; st.anchor = m; st.selected = null; st.shelf = 0; this.render(); });
+    if (st.scope === "month") await this.reviewMonth(inner);
+    else await this.reviewYear(inner);
+  },
+
+  /* ---------------- Month ---------------- */
+  async reviewMonth(inner) {
+    const p = this.plugin, st = this.rv, today = moment();
+    const ms = moment(st.anchor).startOf("month"), me = ms.clone().endOf("month"), dim = ms.daysInMonth();
+    const days = await p.rangeInfo(ms, me);
+    const past = days.filter((x) => !x.d.isAfter(today, "day"));
+    const n = past.length, habits = p.habits();
+    const isCur = ms.isSame(today, "month");
+
+    const logged = past.filter((x) => x.logged).length;
+    if (!logged && !past.some((x) => x.exists)) {
+      emptyState(this, inner, isCur ? L("Nothing recorded this month yet", "这个月还没有记录") : L("Nothing was recorded this month", "这个月没有记录"),
+        L("Write a to-do, tick a habit or pick a mood in Note. Your month will start to appear here the same day.", "在「记录」里写一条待办、勾一个习惯或点一下心情，当天这里就会开始出现你的这个月。"),
+        isCur ? () => this.go("planner", { scope: "day", anchor: moment() }) : null, L("Start today's note", "开始今天的记录"));
+      return;
+    }
+    const streak = longestRun(past.map((x) => x.logged));
+    const mm = modeMood(past);
+    let bestH = null;
+    for (const g of habits) { const goal = habitGoal(past, g); if (!bestH || goal.rate > bestH.goal.rate) bestH = { g, goal }; }
+    const weeks = {};
+    past.forEach((x) => { const k = x.d.format("GGGG-[W]WW"); (weeks[k] = weeks[k] || []).push(x); });
+    let bw = null;
+    for (const [k, list] of Object.entries(weeks)) { const md = list.filter((x) => x.mood); if (md.length < 3) continue; const sh = goodShare(list); if (!bw || sh > bw.sh) bw = { k, sh, list, d: list[0].d }; }
+    summary(inner, {
+      num: String(logged),
+      of: isCur ? L(` / ${n} days recorded so far`, ` / ${n} 天有记录`) : L(` / ${n} days recorded`, ` / ${n} 天有记录`),
+      rate: n ? logged / n : 0,
+      line: (isCur ? L(`${dim - n} days left this month. `, `这个月还剩 ${dim - n} 天。`) : "") + L(`Longest streak: ${streak} ${streak === 1 ? "day" : "days"}.`, `最长连续 ${streak} 天。`),
+    }, [
+      { label: L("Mostly", "大多是"), dot: mm, sub: L(`${past.filter((x) => x.mood).length} days with a mood`, `${past.filter((x) => x.mood).length} 天记了心情`) },
+      { label: L("Most consistent", "最稳定的习惯"), value: bestH && bestH.goal.done ? bestH.g.name : "", sub: bestH && bestH.goal.done ? L(`${Math.round(bestH.goal.rate * 100)}% of target`, `达到目标的 ${Math.round(bestH.goal.rate * 100)}%`) : "" },
+      { label: L("Best week", "最好的一周"), value: bw ? L(`Week ${bw.d.isoWeek()}`, `第 ${bw.d.isoWeek()} 周`) : "", sub: bw ? (el) => { el.addClass("planfold-dots", "is-tiny"); bw.list.forEach((x) => h(el, "span", x.mood ? `planfold-dot m${x.mood} is-static is-tiny` : "planfold-dot is-static is-tiny is-empty")); } : "" },
+    ]);
+
+    /* habits — hidden until there is at least one */
+    if (habits.length) {
+      const hs = section(inner, L("Habits", "习惯"));
+      const table = h(hs.wrap, "div", "planfold-panel planfold-habit-table");
+      for (const g of habits) {
+        const row = h(table, "div", "planfold-habit-row");
+        const nm = h(row, "div", "planfold-habit-cell-name");
+        h(nm, "div", "planfold-habit-title", g.name);
+        const goal = habitGoal(past, g);
+        const sq = h(row, "div", "planfold-habit-squares");
+        for (const x of days) {
+          const s = h(sq, "span", "planfold-square" + (x.habits[g.key] ? " is-on" : "") + (x.d.isAfter(today, "day") ? " is-future" : "") + (x.d.isSame(today, "day") ? " is-today" : ""));
+          s.title = `${dateFmt.short(x.d)}${x.habits[g.key] ? " ✓" : ""}`;
+        }
+        h(row, "div", "planfold-habit-spacer");
+        const sc = h(row, "div", "planfold-habit-score");
+        // one short line: done / target (the word "target" sits in the tooltip, so the row stays one line high)
+        const big = h(sc, "div", "planfold-habit-big");
+        h(big, "span", "", goal.done);
+        h(big, "span", "planfold-pattern-of", `/${goal.expected}`);
+        sc.title = L(`${goal.done} of ${goal.expected} (this month's target)`, `${goal.done} / ${goal.expected}（本月目标）`);
+        const bar = h(sc, "div", "planfold-bar");
+        h(bar, "span").style.width = `${Math.round(goal.rate * 100)}%`;
+      }
+    }
+
+    /* calendar + detail */
+    const cg = h(inner, "div", "planfold-month-grid");
+    const calWrap = h(cg, "div", "planfold-month-cal-wrap");
+    const cal = h(calWrap, "div", "planfold-panel planfold-month-cal");
+    // rows start on the day set in Settings (like Home); the W column is still the ISO week (Mon–Sun) of each row
+    const sunday = p.settings.weekStart === "sunday";
+    const rowStart = (m) => rowStartOf(m, sunday);
+    const dows = [0, 1, 2, 3, 4, 5, 6].map((i) => dateFmt.weekday(rowStart(moment()).add(i, "day")));
+    dows.forEach((t) => h(cal, "div", "planfold-mc-dow", t));
+    h(cal, "div", "planfold-mc-dow is-week", L("Week", "周"));
+    if (!st.selected || !moment(st.selected.d || st.selected).isSame(ms, "month")) {
+      const def = isCur ? days[today.date() - 1] : (days.filter((x) => x.logged).pop() || days[0]);
+      st.selected = { kind: "day", d: def.d.clone() };
+    }
+    let cursor = rowStart(ms);
+    const last = rowStart(me).add(6, "day");
+    while (!cursor.isAfter(last, "day")) {
+      const wkStart = cursor.clone().add(sunday ? 1 : 0, "day"); // the row's Monday → its weekly note
+      for (let i = 0; i < 7; i++) {
+        const d = cursor.clone();
+        if (!d.isSame(ms, "month")) { h(cal, "div", "planfold-mc-day is-blank"); cursor.add(1, "day"); continue; }
+        const x = days[d.date() - 1];
+        const cell = h(cal, "button", "planfold-mc-day");
+        cell.type = "button";
+        if (d.isAfter(today, "day")) cell.addClass("is-future");
+        if (x.logged) cell.addClass("is-logged");
+        if (d.isSame(today, "day")) cell.addClass("is-today");
+        if (st.selected.kind === "day" && d.isSame(st.selected.d, "day")) cell.addClass("is-selected");
+        const top = h(cell, "div", "planfold-mc-top");
+        h(top, "span", "planfold-mc-num", d.date());
+        if (x.mood || x.starred) {
+          const marks = h(top, "span", "planfold-mc-marks");
+          if (x.mood) h(marks, "span", `planfold-dot m${x.mood} is-static is-tiny`).title = L(`Mood ${x.mood} of 5`, `心情 ${x.mood} / 5`);
+          if (x.starred) { const star = h(marks, "span", "planfold-mc-star"); star.title = L("Most important to-do", "当天有最重要待办"); try { setIcon(star, "star"); } catch (e) {} }
+        }
+        if (x.first) h(cell, "div", "planfold-mc-text", x.first);
+        if (habits.length && x.exists) { const hb = h(cell, "div", "planfold-mc-habits"); habits.forEach((g) => h(hb, "span", "planfold-square is-mini" + (x.habits[g.key] ? " is-on" : ""))); }
+        cell.addEventListener("click", () => { st.selected = { kind: "day", d: d.clone() }; this.render(); });
+        cursor.add(1, "day");
+      }
+      const wf = p.fileFor("week", wkStart);
+      const wc = h(cal, "button", "planfold-mc-week" + (st.selected.kind === "week" && wkStart.isSame(st.selected.d, "day") ? " is-selected" : ""));
+      wc.type = "button";
+      h(wc, "span", "planfold-hint", `W${wkStart.isoWeek()}`);
+      h(wc, "span", "planfold-square" + (wf ? " is-on" : ""));
+      wc.title = wf ? L("Weekly review written", "已写周复盘") : L("No weekly review", "还没有周复盘");
+      wc.addEventListener("click", () => { st.selected = { kind: "week", d: wkStart.clone() }; this.render(); });
+    }
+    cal.title = L("Each day: mood and the first Daily section. Squares are habits.", "每天：心情和日记的第一个段落；小方格是习惯。");
+    await this.reviewDetail(h(cg, "div", "planfold-panel planfold-detail"), days);
+
+    /* monthly review */
+    await this.reviewNote(inner, "month", ms);
+  },
+
+  async reviewDetail(panel, days) {
+    const p = this.plugin, sel = this.rv.selected, habits = p.habits();
+    if (sel.kind === "week") {
+      const s = moment(sel.d), note = await p.readNote("week", s);
+      h(panel, "div", "planfold-label", L("Weekly note", "周笔记"));
+      h(panel, "h3", "planfold-detail-title", scopeTitle("week", s));
+      const wd = (await p.rangeInfo(s, s.clone().add(6, "day")));
+      const row = h(panel, "div", "planfold-detail-week");
+      wd.forEach((x) => { const c = h(row, "span", "planfold-detail-wday"); h(c, "span", "planfold-hint", dateFmt.weekday(x.d)); h(c, "span", x.mood ? `planfold-dot m${x.mood} is-static is-tiny` : "planfold-dot is-static is-tiny is-empty"); });
+      for (const f of p.scopeFields("week")) { const b = h(panel, "div", "planfold-detail-field"); h(b, "div", "planfold-label", f.label); h(b, "div", "planfold-detail-text" + (note.fields[f.id] ? "" : " is-empty"), plain(note.fields[f.id]) || "—"); }
+      button(panel, L("Edit", "编辑"), "planfold-link", () => this.go("planner", { scope: "week", anchor: s }));
+      return;
+    }
+    const d = moment(sel.d);
+    const x = await p.dayInfo(d);
+    const dt = h(panel, "h3", "planfold-detail-title", LANG === "zh" ? d.format("M月D日") : d.format("MMMM D"));
+    h(dt, "span", "planfold-detail-weekday", dateFmt.weekday(d));
+    if (!x.exists) { h(panel, "p", "planfold-muted", d.isAfter(moment(), "day") ? L("Not here yet.", "还没到这一天。") : L("Nothing written this day.", "这天没有记录。")); }
+    else {
+      const m = h(panel, "div", "planfold-detail-mood");
+      if (x.mood) { h(m, "span", `planfold-dot m${x.mood} is-static`); } else h(m, "span", "planfold-muted", L("No mood", "没记心情"));
+      if (habits.length) { const hl = h(panel, "div", "planfold-detail-habits"); habits.forEach((g) => { const r = h(hl, "div", "planfold-detail-habit" + (x.habits[g.key] ? "" : " is-off")); h(r, "span", "planfold-square is-mini" + (x.habits[g.key] ? " is-on" : "")); h(r, "span", "", g.name); }); }
+      if (x.todo) h(panel, "div", "planfold-hint", L(`To-do ${x.todoDone}/${x.todo}`, `待办 ${x.todoDone}/${x.todo}`));
+      for (const f of p.settings.templates.day || []) { const b = h(panel, "div", "planfold-detail-field"); h(b, "div", "planfold-label", f.label); h(b, "div", "planfold-detail-text" + (x.fields[f.id] ? "" : " is-empty"), plain(x.fields[f.id]) || "—"); }
+    }
+    button(panel, L("Edit", "编辑"), "planfold-link", () => this.go("planner", { scope: "day", anchor: d }));
+  },
+
+  async reviewNote(inner, scope, m) {
+    const p = this.plugin, note = await p.readNote(scope, m);
+    const s = section(inner, scope === "month" ? L("Monthly note", "月笔记") : L("Yearly note", "年笔记"), (r) => button(r, L("Edit", "编辑"), "planfold-link", () => this.go("planner", { scope, anchor: m })));
+    const fields = p.scopeFields(scope);
+    const any = fields.some((f) => String(note.fields[f.id] || "").trim());
+    if (!any) { h(s.wrap, "div", "planfold-panel planfold-empty is-center", scope === "month" ? L("Nothing written for this month yet.", "这个月还没写复盘。") : L("Nothing written for this year yet.", "今年还没写复盘。")); return; }
+    const box = h(s.wrap, "div", "planfold-panel planfold-reflect");
+    box.style.setProperty("--cols", String(Math.min(fields.length, 3)));
+    for (const f of fields) { const c = h(box, "div", "planfold-reflect-col"); h(c, "div", "planfold-label", f.label); h(c, "div", "planfold-reflect-text" + (note.fields[f.id] ? "" : " is-empty"), plain(note.fields[f.id]) || "—"); }
+  },
+
+  /* ---------------- Year ---------------- */
+  async reviewYear(inner) {
+    const p = this.plugin, st = this.rv, today = moment();
+    const ys = moment(st.anchor).startOf("year"), ye = ys.clone().endOf("year");
+    const days = await p.rangeInfo(ys, ye);
+    const past = days.filter((x) => !x.d.isAfter(today, "day"));
+    const n = past.length, habits = p.habits(), isCur = ys.isSame(today, "year");
+    const byMonth = Array.from({ length: 12 }, (_, i) => days.filter((x) => x.d.month() === i));
+
+    const logged = past.filter((x) => x.logged).length;
+    if (!logged && !past.some((x) => x.exists)) {
+      emptyState(this, inner, L("Nothing recorded this year yet", "今年还没有记录"), L("Each day you write in Note adds a dot here. Start with today.", "你在「记录」里写下的每一天，都会在这里留下一个点。从今天开始。"), () => this.go("planner", { scope: "day", anchor: moment() }), L("Start today's note", "开始今天的记录"));
+      return;
+    }
+    const mm = modeMood(past);
+    let bm = null;
+    byMonth.forEach((list, i) => { const md = list.filter((x) => x.mood); if (md.length < 3) return; const sh = goodShare(list); if (!bm || sh > bm.sh) bm = { i, sh }; });
+    let bestH = null;
+    for (const g of habits) { const goal = habitGoal(past, g); if (!bestH || goal.rate > bestH.goal.rate) bestH = { g, goal }; }
+    const streak = longestRun(past.map((x) => x.logged));
+    summary(inner, {
+      num: String(logged), of: L(` / ${n} days recorded`, ` / ${n} 天有记录`), rate: n ? logged / n : 0,
+      line: L(`Longest streak: ${streak} ${streak === 1 ? "day" : "days"}.`, `最长连续 ${streak} 天。`),
+    }, [
+      { label: L("Mostly", "大多是"), dot: mm, sub: L(`${past.filter((x) => x.mood).length} days with a mood`, `${past.filter((x) => x.mood).length} 天记了心情`) },
+      { label: L("Best month", "最好的月份"), value: bm ? dateFmt.monthName(moment().month(bm.i)) : "", sub: bm ? L(`${byMonth[bm.i].filter((x) => x.mood).length} days with a mood`, `${byMonth[bm.i].filter((x) => x.mood).length} 天记了心情`) : "" },
+      { label: L("Most consistent", "最稳定的习惯"), value: bestH && bestH.goal.done ? bestH.g.name : "", sub: bestH && bestH.goal.done ? L(`${Math.round(bestH.goal.rate * 100)}% of target`, `达到目标的 ${Math.round(bestH.goal.rate * 100)}%`) : "" },
+    ]);
+
+    /* habits: number-first tiles, a shelf when there are more than fit in a row */
+    const per = { wide: 3, medium: 2, narrow: 1 }[this.root.dataset.w || "wide"];
+    const hs = section(inner, L("Habits", "习惯"), (r) => {
+      if (habits.length <= per) return;
+      const max = Math.max(0, habits.length - per);
+      st.shelf = Math.min(st.shelf, max);
+      const pv = h(r, "button", "planfold-icon-btn"); pv.type = "button"; pv.setAttr("aria-label", L("Previous habits", "上一组习惯")); try { setIcon(pv, "chevron-left"); } catch (e) {}
+      h(r, "span", "planfold-hint", L(`${st.shelf + 1}–${Math.min(st.shelf + per, habits.length)} of ${habits.length}`, `${st.shelf + 1}–${Math.min(st.shelf + per, habits.length)} / 共 ${habits.length} 个`));
+      const nx = h(r, "button", "planfold-icon-btn"); nx.type = "button"; nx.setAttr("aria-label", L("Next habits", "下一组习惯")); try { setIcon(nx, "chevron-right"); } catch (e) {}
+      pv.disabled = st.shelf === 0; nx.disabled = st.shelf >= max;
+      pv.addEventListener("click", () => { st.shelf = Math.max(0, st.shelf - per); this.render(); });
+      nx.addEventListener("click", () => { st.shelf = Math.min(max, st.shelf + per); this.render(); });
+    });
+    if (!habits.length) hs.wrap.remove(); // nothing to show yet — no empty box
+    else {
+      const row = h(hs.wrap, "div", "planfold-year-tiles");
+      row.style.setProperty("--per", String(per));
+      for (const g of habits.slice(st.shelf, st.shelf + per)) {
+        const t = h(row, "div", "planfold-panel planfold-year-tile");
+        const goal = habitGoal(past, g), c = goal.done;
+        const lt = h(t, "div", "planfold-yt-left");
+        const big = h(lt, "div", "planfold-yt-big"); h(big, "span", "", Math.round(goal.rate * 100)); h(big, "span", "planfold-pattern-of", "%");
+        const nm = h(lt, "div", "planfold-yt-name");
+        h(nm, "div", "planfold-habit-title", g.name);
+        let best = null;
+        byMonth.forEach((list, i) => { const cc = list.filter((x) => x.habits[g.key]).length; if (cc && (!best || cc > best.c)) best = { i, c: cc, run: longestRun(list.map((x) => x.habits[g.key])) }; });
+        h(nm, "div", "planfold-hint", best ? L(`Target ${goal.target}/week · best: ${dateFmt.monthName(moment().month(best.i))}`, `目标每周 ${goal.target} 天 · 最佳：${dateFmt.monthName(moment().month(best.i))}`) : L(`Target ${goal.target} days/week`, `目标每周 ${goal.target} 天`));
+        const chart = h(t, "div", "planfold-yt-chart");
+        byMonth.forEach((list, i) => {
+          const col = h(chart, "div", "planfold-yt-col");
+          const cells = h(col, "div", "planfold-yt-cells");
+          for (let k = 0; k < 31; k++) { const x = list[k]; h(cells, "span", "planfold-square is-micro" + (!x ? " is-none" : x.habits[g.key] ? " is-on" : x.d.isAfter(today, "day") ? " is-future" : "")); }
+          // 5: label every third month only, so the ticks never run together
+          h(col, "span", "planfold-yt-m", i % 3 === 0 ? (LANG === "zh" ? `${i + 1}月` : moment().month(i).format("MMM")) : "");
+        });
+      }
+    }
+
+    /* moods + month by month */
+    const two = h(inner, "div", "planfold-year-two");
+    const ms = section(two, L("Moods", "心情"), (r) => { h(r, "span", "planfold-hint", L("Low", "低")); const lg = h(r, "span", "planfold-dots is-static is-tiny"); for (let i = 1; i <= 5; i++) h(lg, "span", `planfold-dot m${i} is-static is-tiny`); h(r, "span", "planfold-hint", L("High", "高")); });
+    const mg = h(ms.wrap, "div", "planfold-panel planfold-mood-grid");
+    byMonth.forEach((list, i) => {
+      const r = h(mg, "div", "planfold-mood-line");
+      h(r, "span", "planfold-hint planfold-mood-m", dateFmt.monthShort(i));
+      const dots = h(r, "div", "planfold-mood-dots");
+      list.forEach((x) => { const dd = h(dots, "span", x.mood ? `planfold-dot m${x.mood} is-static is-tiny` : "planfold-dot is-static is-tiny " + (x.d.isAfter(today, "day") ? "is-future" : "is-empty")); dd.title = dateFmt.short(x.d); });
+    });
+    const mbs = section(two, L("Month by month", "逐月"));
+    const list = h(mbs.wrap, "div", "planfold-panel planfold-mbm");
+    for (let i = 0; i < 12; i++) {
+      const mStart = ys.clone().month(i);
+      const md = byMonth[i], lg = md.filter((x) => x.logged).length, mo = modeMood(md);
+      const r = h(list, "button", "planfold-mbm-row" + (mStart.isAfter(today, "month") ? " is-future" : ""));
+      r.type = "button";
+      h(r, "span", "planfold-mbm-name", dateFmt.monthName(mStart));
+      h(r, "span", mo ? `planfold-dot m${mo} is-static is-tiny` : "planfold-dot is-static is-tiny is-none");
+      const note = mStart.isAfter(today, "month") ? null : await p.readNote("month", mStart);
+      const firstF = (p.settings.templates.month || [])[0];
+      const line = note && firstF ? firstLine(plain(note.fields[firstF.id])) : "";
+      const facts = lg ? L(`${lg} days logged`, `记录 ${lg} 天`)  : "";
+      h(r, "span", "planfold-mbm-text" + (line ? "" : " is-facts"), line || facts);
+      h(r, "span", "planfold-hint planfold-mbm-facts", line ? facts : "");
+      r.addEventListener("click", () => { st.scope = "month"; st.anchor = mStart; st.selected = null; this.render(); });
+    }
+
+    await this.reviewNote(inner, "year", ys);
   },
 });
 
@@ -2695,7 +3793,7 @@ class OnboardingModal extends Modal {
       this.option(opts, "theme", L("Follow my theme", "跟随我的主题"), L("Your theme's colours and accent. Nothing outside Planfold changes.", "用你主题的颜色和强调色，Planfold 以外的界面都不改。"), "look");
       const sw = h(c, "label", "planfold-ob-check");
       const cb = h(sw, "input"); cb.type = "checkbox"; cb.checked = this.shortcuts;
-      h(sw, "span", "", L("Show Pinned and Recent notes at the top of the file explorer", "在文件栏顶部显示「置顶」和「最近」笔记"));
+      h(sw, "span", "", L("Show recent notes at the top of the file explorer", "在文件栏顶部显示「最近」笔记"));
       cb.addEventListener("change", () => { this.shortcuts = cb.checked; this.preview(); });
     } else if (this.step === 2) {
       // the sections of every daily note, picked like habits: two are on to start with
@@ -2894,13 +3992,14 @@ class PlanfoldSettingTab extends PluginSettingTab {
     c.addClass("planfold-settings");
     // Grouped by what the person is trying to do, not by how Planfold is built inside
     const groups = [
-      { id: "system", label: L("System", "系统"), pages: [["general", PRO ? L("Language & calendar", "语言与日历") : L("Language & time", "语言与时间")], ...(PRO ? [["license", L("License", "授权")]] : [])] },
+      { id: "system", label: L("System", "系统"), pages: [["general", ""]] },
       { id: "notes", label: L("Note paths", "笔记路径"), pages: [["notes", ""]] },
       { id: "templates", label: L("Note templates", "笔记模板"), pages: [["templates", ""]] },
       { id: "capture", label: L("Quick notes", "随手记"), pages: [["capture", ""]] },
       { id: "home", label: L("Layout & look", "布局与外观"), pages: [["home", ""]] },
     ];
     if (this.page === "habits") this.page = "templates";
+    if (this.page === "license") this.page = "general"; // the license now lives at the top of System
     const cur = groups.find((g) => g.pages.some(([k]) => k === this.page)) || groups[0];
     const nav = h(c, "div", "planfold-seg planfold-set-nav");
     for (const g of groups) { const b = h(nav, "button", g === cur ? "is-on" : "", g.label); b.type = "button"; b.addEventListener("click", () => { this.page = g.pages[0][0]; this.display(); }); }
@@ -3044,7 +4143,7 @@ class PlanfoldSettingTab extends PluginSettingTab {
     this.row(el, L("Default layout", "默认布局"), (PRO ? L("To-do on the left; Habits and Quick note are separate cards on the right. Time and mood stay in the top bar; the full calendar lives in Obsidian's right sidebar.", "待办在左；习惯和随手记是右侧两张独立卡片。时间和心情保留在顶部，完整日历位于 Obsidian 右侧边栏。") : L("To-do on the left; Habits and Quick note are separate cards on the right. Time and mood stay in the top bar.", "待办在左；习惯和随手记是右侧两张独立卡片。时间和心情保留在顶部。")))
       .addButton((b) => b.setButtonText(L("Reset", "恢复默认")).onClick(async () => { S.homeLayout = defaultHomeLayout(); S.homeLayoutVersion = HOME_LAYOUT_VERSION; await this.save(true); }));
     this.sub(el, L("File explorer", "文件栏"));
-    this.row(el, L("Pinned and Recent in the file explorer", "在文件栏顶部显示置顶和最近"), L("Right-click any note → Pin. Recent lists what you opened on this device.", "在任意笔记上右键 →「置顶」。「最近」是这台设备上打开过的笔记。"))
+    this.row(el, L("Recent notes in the file explorer", "在文件栏顶部显示最近笔记"), L("The notes you opened lately on this device. To keep a note at hand, use Obsidian's Bookmarks.", "这台设备上最近打开过的笔记。想固定常用的笔记，可以用 Obsidian 自带的书签。"))
       .addToggle((t) => t.setValue(S.explorerShortcuts !== false).onChange(async (v) => { S.explorerShortcuts = v; await this.save(); p.mountExplorer(); }));
     this.sub(el, L("Appearance", "外观"));
     this.row(el, L("Colours", "配色"), L("Planfold design: soft sage colours, mono type and rounded cards, for Planfold and the rest of Obsidian (sidebars, tabs, file list). Follow my theme: your theme's colours and accent, nothing outside Planfold changes.", "Planfold 设计：柔和的灰青配色、等宽字体和圆角卡片，Planfold 和整个 Obsidian（侧栏、标签栏、文件列表）一起换。跟随主题：用你主题的颜色和强调色，Planfold 以外的界面都不改。"))
@@ -3053,6 +4152,7 @@ class PlanfoldSettingTab extends PluginSettingTab {
 
   page_general(el) {
     const p = this.plugin, S = p.settings;
+    if (PRO) this.licenseSection(el);
     this.sub(el, L("Language", "语言"));
     this.row(el, L("Interface language", "界面语言")).addDropdown((d) => d.addOption("en", "English").addOption("zh", "中文").setValue(LANG).onChange((v) => {
       S.language = v; LANG = v;
@@ -3079,23 +4179,29 @@ class PlanfoldSettingTab extends PluginSettingTab {
     this.row(el, L("Run setup again", "重新运行引导")).addButton((b) => b.setButtonText(L("Open welcome", "打开欢迎页")).onClick(() => new OnboardingModal(this.app, p).open()));
   }
 
-  page_license(el) {
+  /** Planfold Pro, at the top of System: who it's licensed to, or how to get it and where to paste a key. */
+  licenseSection(el) {
     const p = this.plugin, S = p.settings;
+    this.sub(el, "Planfold Pro");
     if (p.license) {
-      const box = h(el, "div", "planfold-panel planfold-license");
-      h(box, "strong", "", L(`Licensed to ${p.license.n || "you"}`, `已授权给 ${p.license.n || "你"}`));
-      h(box, "div", "planfold-muted", L("Works offline.", "可离线使用。"));
+      const who = p.license.n ? L(`Licensed to ${p.license.n}.`, `已授权给 ${p.license.n}。`) : L("Activated.", "已激活。");
+      this.row(el, L("Status", "状态"), who + " " + L("Thank you for supporting Planfold.", "谢谢你支持 Planfold。"))
+        .addButton((b) => b.setButtonText(L("Remove key", "移除激活码")).onClick(async () => { S.license = ""; S.licenseGumroad = null; p.license = null; await this.save(true); }));
+      return;
     }
-    this.row(el, L("License key", "授权码"), L("One license per person, for your own devices.", "一人一份授权，可用于自己的多台设备。")).addText((t) => {
-      t.setPlaceholder("PLANFOLD-…").setValue(S.license);
-      t.inputEl.addEventListener("change", async () => {
-        const lic = await verifyLicense(t.getValue());
-        if (!lic && t.getValue().trim()) { new Notice(L("This key doesn't look right. Copy the whole key, starting with PLANFOLD-.", "授权码不对。请完整复制，以 PLANFOLD- 开头。")); return; }
-        S.license = t.getValue().replace(/\s+/g, ""); p.license = lic; await this.save(true);
-        if (lic && !S.calendarSidebarAdded) { S.calendarSidebarAdded = true; await p.saveSettings(); p.openCalendar(false); }
-      });
-    });
+    const url = PRO_BUY_URL[LANG] || PRO_BUY_URL.en;
+    this.row(el, L("Unlock Planfold Pro", "解锁 Planfold Pro"), L("Weekly, monthly and yearly plans, Review and the calendar view. Pay once.", "周、月、年的计划和复盘，回顾，日历视图。一次买断。"))
+      .addButton((b) => { b.setButtonText(L("Get Planfold Pro", "获取 Planfold Pro")).setCta().onClick(() => { if (url) window.open(url); else new Notice(L("The purchase page isn't set up yet.", "购买页面还没设置好。")); }); });
+    let typed = "";
+    this.row(el, L("License key", "激活码"), L("Paste the key from your purchase.", "粘贴购买后收到的激活码。"))
+      .addText((t) => { t.setPlaceholder(L("Paste your key", "粘贴激活码")).onChange((v) => { typed = v; }); })
+      .addButton((b) => b.setButtonText(L("Activate", "激活")).onClick(async () => {
+        if (!typed.trim()) return;
+        if (await p.useLicenseKey(typed)) { new Notice(L("Planfold Pro is on. Thank you!", "Planfold Pro 已激活，谢谢支持！")); this.display(); }
+        else new Notice((!isPlanfoldKey(typed) && GUMROAD_LAST_ERROR) || L("This key doesn't look right. Copy the whole key and try again.", "激活码不对，请完整复制后再试一次。"), 12000);
+      }));
   }
+
 }
 
 module.exports = PlanfoldPlugin;
@@ -3208,19 +4314,11 @@ Object.assign(PlanfoldPlugin.prototype, {
         });
         self.addEventListener("contextmenu", (e) => {
           const menu = new obsidian.Menu();
-          const on = S.homePinnedPaths.includes(f.path);
-          menu.addItem((i) => i.setTitle(on ? L("Unpin", "取消置顶") : L("Pin", "置顶")).setIcon(on ? "pin-off" : "pin").onClick(() => this.togglePin(f)));
           menu.addItem((i) => i.setTitle(L("Open in new tab", "在新标签页打开")).setIcon("file-plus").onClick(() => this.openExplorerShortcut(f, true)));
-          if (on && S.homePinnedPaths.length > 1) {
-            const at = S.homePinnedPaths.indexOf(f.path);
-            if (at > 0) menu.addItem((i) => i.setTitle(L("Move up", "上移")).setIcon("arrow-up").onClick(() => this.movePin(f.path, -1)));
-            if (at < S.homePinnedPaths.length - 1) menu.addItem((i) => i.setTitle(L("Move down", "下移")).setIcon("arrow-down").onClick(() => this.movePin(f.path, 1)));
-          }
           menu.showAtMouseEvent(e);
         });
       }
     };
-    group("pinned", L("PINNED", "PINNED 置顶"), this.pinnedFiles(), () => "", L("Right-click a note → Pin", "在笔记上右键 →「置顶」"));
     const recent = this.recentFiles(5);
     group("recent", L("RECENT", "RECENT 最近"), recent, (f) => {
       const t = S.homeRecentTimes[f.path] || f.stat.mtime, m = moment(t);

@@ -2231,3 +2231,212 @@ body.planfold-look .workspace-ribbon.mod-primary .sidebar-toggle-button {
 .planfold-onboarding .planfold-ob-error { color: var(--text-error); min-height: 1.4em; margin-top: var(--t-space-2); }
 .planfold-settings .planfold-start-off { opacity: .3; }
 .planfold-settings .planfold-start-off:hover { opacity: .8; }
+
+/* ---------- Pro 1.0.13: editing a to-do keeps the checkbox, field and ✕ on one centre line ---------- */
+/* The field grows by its padding above and below the text, and is pulled back by the same amount,
+   so the words stay where they were and the box sits evenly around them. The ✕ sits on the field's centre line. */
+.planfold-root .planfold-todo textarea.planfold-inline-input,
+.planfold-root .planfold-todo textarea.planfold-inline-input:focus,
+.planfold-root .planfold-todo textarea.planfold-inline-input:focus-visible {
+  min-height: 0 !important;
+  margin-block: calc(var(--t-space-1) * -1) !important;
+}
+.planfold-root .planfold-todo.is-editing .planfold-del {
+  align-self: center;
+  margin-block: 0;
+}
+
+/* ---------- Pro: a half-hour event is one line tall, so its title and time sit side by side ---------- */
+.planfold-root .planfold-weekcal-event.is-short { flex-direction: row !important; align-items: center !important; gap: var(--t-space-2); padding-block: 0 !important; }
+.planfold-root .planfold-weekcal-event.is-short strong { flex: 1 1 auto; min-width: 0; white-space: nowrap !important; overflow: hidden; text-overflow: ellipsis; }
+.planfold-root .planfold-weekcal-event.is-short > span:not([class]) { flex: none; margin-top: 0; }
+
+/* ---------- Pro: split panes can be resized again ---------- */
+/* The drag handle sits in the 6px gap just outside each pane card, but Obsidian clips a tab group's
+   overflow, so the handle was cut off and there was nothing to grab. The card's rounded corners come
+   from its header and body, so the group itself can let the handle show. */
+body.planfold-look .workspace-split.mod-root .workspace-tabs { overflow: visible !important; }
+body.planfold-look .workspace-split.mod-root .workspace-tabs > .workspace-leaf-resize-handle { z-index: 10; }
+
+/* ---------- Pro: one-column week/month view, to-do rows line up again ---------- */
+/* In the narrow layout each row is 44px tall and the checkbox and text sit on its middle line,
+   but the drag handle and the star kept the 30px desktop size at the top of the row, so they rode
+   high — and the handle was pulled in on top of the checkbox. The daily lists now indent like
+   "This week", the handle sits in that indent, and the handle, star and ✕ share the row's centre line. */
+.planfold-root[data-w="narrow"] .planfold-part-list { padding-left: var(--t-space-4); }
+.planfold-root[data-w="narrow"] .planfold-part-list .planfold-grip { left: calc(var(--t-control-h) * -1); }
+.planfold-root[data-w="narrow"] .planfold-todo > .planfold-grip { height: var(--t-touch); }
+.planfold-root[data-w="narrow"] .planfold-todo > .planfold-star,
+.planfold-root[data-w="narrow"] .planfold-todo:not(.is-editing) > .planfold-del { height: var(--t-touch); }
+
+/* ---------- Pro: typing a new to-do in a plan column shows one field, not two overlapping boxes ---------- */
+/* The add row lights up on hover and the field gets its own fill while typing; together they made two
+   boxes, and the field also ran past the column's right edge. While typing only the field shows, and
+   it stops at the row's right edge. */
+.planfold-root .planfold-ff-todos .planfold-add:focus-within { background: transparent !important; }
+.planfold-root .planfold-ff-todos .planfold-add .planfold-add-input:focus,
+.planfold-root .planfold-ff-todos .planfold-add .planfold-add-input:focus-visible {
+  margin-left: calc(var(--t-space-2) * -1) !important;
+  margin-right: 0 !important;
+  width: calc(100% + var(--t-space-2)) !important;
+  padding: var(--t-space-1) var(--t-space-2) !important;
+  background: var(--f-fieldbg) !important;
+}
+
+/* ---------- Paid features: what someone without Pro sees on Review and in the calendar ---------- */
+.planfold-root .planfold-locked { display: flex; flex-direction: column; align-items: stretch; gap: var(--t-space-3); background: var(--f-card) !important; box-shadow: var(--f-shadow) !important; border: 0 !important; border-radius: var(--t-radius-lg); color: var(--f-ink); }
+.planfold-root .planfold-locked.is-side { margin: var(--t-space-4); padding: var(--t-space-5); }
+.planfold-locked .planfold-h2 { margin: 0; }
+.planfold-locked-badge { align-self: flex-start; padding: var(--t-space-0) var(--t-space-2); border-radius: var(--t-radius-sm); background: color-mix(in srgb, var(--f-accent) 14%, transparent); color: var(--f-accent); font-family: var(--f-font); font-size: var(--t-type-caption); font-weight: var(--t-weight-semibold); letter-spacing: .06em; }
+.planfold-locked-list { margin: 0; padding-left: var(--t-space-4); color: var(--f-muted); font-size: var(--t-type-body); line-height: var(--t-leading-body); }
+.planfold-locked-list li + li { margin-top: var(--t-space-1); }
+.planfold-root .planfold-locked .planfold-locked-buy { align-self: flex-start; margin-top: var(--t-space-1); }
+.planfold-locked-have { margin-top: var(--t-space-2); color: var(--f-muted); font-size: var(--t-type-caption); }
+.planfold-locked-row { display: flex; gap: var(--t-space-2); align-items: center; }
+.planfold-root .planfold-locked input.planfold-locked-input { flex: 1 1 auto; min-width: 0; height: var(--t-control-h); padding: 0 var(--t-space-3) !important; border: 0 !important; border-radius: var(--t-radius) !important; background: var(--f-fieldbg) !important; box-shadow: none !important; color: var(--f-ink); font-size: var(--t-type-body); }
+.planfold-locked .planfold-ob-error { margin: 0; min-height: 0; color: var(--text-error); font-size: var(--t-type-caption); }
+.planfold-locked .planfold-ob-error:empty { display: none; }
+.planfold-locked-sub { display: flex; flex-direction: column; gap: var(--t-space-2); margin-top: var(--t-space-2); padding-top: var(--t-space-4); border-top: 1px solid var(--background-modifier-border); }
+.planfold-locked-sub .planfold-locked-have { margin-top: 0; }
+
+/* ---------- Pro preview: the real page, read-only, fading out under the offer ---------- */
+.planfold-teaser { position: relative; }
+.planfold-teaser-preview { max-height: 460px; overflow: hidden; pointer-events: none; user-select: none; -webkit-mask-image: linear-gradient(to bottom, #000 35%, transparent 92%); mask-image: linear-gradient(to bottom, #000 35%, transparent 92%); }
+.planfold-teaser.is-side .planfold-teaser-preview { max-height: 360px; }
+.planfold-root .planfold-teaser-card { position: relative; z-index: 2; max-width: 460px; margin: calc(var(--t-space-7) * -2) auto var(--t-space-6); padding: var(--t-space-5); }
+.planfold-root .planfold-teaser.is-side .planfold-teaser-card { margin: calc(var(--t-space-7) * -1.5) var(--t-space-3) var(--t-space-4); }
+.planfold-locked-lead { margin: 0; color: var(--f-muted); font-size: var(--t-type-body); line-height: var(--t-leading-body); }
+.planfold-locked-fine { margin-top: calc(var(--t-space-1) * -1); color: var(--f-muted); opacity: .8; font-size: var(--t-type-caption); }
+.planfold-locked-other, .planfold-locked-link { align-self: flex-start; padding: 0 !important; height: auto !important; border: 0 !important; background: transparent !important; box-shadow: none !important; font-size: var(--t-type-caption); cursor: pointer; text-align: left; }
+.planfold-locked-other { color: var(--f-accent); font-size: var(--t-type-body); }
+.planfold-locked-other:hover, .planfold-locked-link:hover { text-decoration: underline; }
+.planfold-locked-links { display: flex; flex-wrap: wrap; gap: var(--t-space-4); padding-top: var(--t-space-3); border-top: 1px solid var(--background-modifier-border); }
+.planfold-locked-link { color: var(--f-muted); }
+.planfold-locked-slot:empty { display: none; }
+.planfold-locked-slot .planfold-locked-sub { margin-top: 0; padding-top: 0; border-top: 0; }
+
+/* ---------- Pro preview, v2: the whole page shows, faded and softly blurred; the offer stays in view ---------- */
+/* You can see everything Review holds — the calendar, the habit table, the colour of your moods — but not read it.
+   The period header and the summary line stay sharp: they are the hook. The card sticks to the bottom while you scroll. */
+.planfold-teaser-preview { max-height: none !important; overflow: visible; -webkit-mask-image: none !important; mask-image: none !important; }
+.planfold-teaser.is-side .planfold-teaser-preview { max-height: none !important; }
+.planfold-teaser-preview > * { opacity: .4; filter: blur(1.5px); transition: none; }
+.planfold-teaser-preview > :first-child,
+.planfold-teaser-preview > .planfold-summary { opacity: 1; filter: none; }
+.planfold-root .planfold-teaser-card,
+.planfold-root .planfold-teaser.is-side .planfold-teaser-card { position: sticky; bottom: var(--t-space-4); margin: var(--t-space-5) auto var(--t-space-4); }
+.planfold-root .planfold-teaser.is-side .planfold-teaser-card { margin-inline: var(--t-space-3); }
+
+/* ---------- Pro preview, v3: only the period header stays sharp; the card sits higher ---------- */
+.planfold-teaser-preview > .planfold-summary { opacity: .4; filter: blur(1.5px); }
+.planfold-teaser.is-side .planfold-teaser-preview > *,
+.planfold-teaser.is-side .planfold-teaser-preview > :first-child { opacity: .4; filter: blur(1.5px); }
+.planfold-root .planfold-teaser-card { bottom: calc(var(--t-space-7) * 3); }
+.planfold-root .planfold-teaser.is-side .planfold-teaser-card { bottom: calc(var(--t-space-7) * 2); }
+
+/* ---------- Pro preview, v4: everything blurred; the card rides near the top; both boxes open ---------- */
+.planfold-teaser-preview > *, .planfold-teaser-preview > :first-child, .planfold-teaser-preview > .planfold-summary { opacity: .4 !important; filter: blur(1.5px) !important; }
+.planfold-teaser-rail { position: sticky; top: calc(var(--t-space-7) * 2); height: 0; z-index: 3; overflow: visible; }
+.planfold-teaser.is-side .planfold-teaser-rail { top: var(--t-space-7); }
+.planfold-root .planfold-teaser-card, .planfold-root .planfold-teaser.is-side .planfold-teaser-card { position: relative; bottom: auto; margin: 0 auto; }
+.planfold-root .planfold-teaser.is-side .planfold-teaser-card { margin: 0 var(--t-space-3); }
+.planfold-locked-more { display: flex; flex-direction: column; gap: var(--t-space-2); padding-top: var(--t-space-3); border-top: 1px solid var(--background-modifier-border); }
+.planfold-locked-more .planfold-locked-have { margin-top: var(--t-space-1); }
+.planfold-locked-more .planfold-locked-sub { margin-top: 0; padding-top: 0; border-top: 0; }
+
+/* ---------- Offer card v5: one big unlock button, then everything Pro includes, ticked ---------- */
+.planfold-root .planfold-locked .planfold-locked-buy { align-self: stretch; width: 100%; height: auto !important; min-height: calc(var(--t-touch) + var(--t-space-1)); padding: var(--t-space-3) var(--t-space-4) !important; font-size: var(--t-type-lead); font-weight: var(--t-weight-semibold); border-radius: var(--t-radius) !important; margin-top: 0; }
+.planfold-locked-fine { align-self: center; margin-top: calc(var(--t-space-1) * -1); }
+.planfold-locked-checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--t-space-2); }
+.planfold-locked-checks li { display: flex; align-items: center; gap: var(--t-space-2); color: var(--f-ink); font-size: var(--t-type-body); line-height: var(--t-leading-body); }
+.planfold-locked-tick { flex: none; display: inline-flex; align-items: center; justify-content: center; width: var(--t-space-4); height: var(--t-space-4); border-radius: 50%; background: color-mix(in srgb, var(--f-accent) 16%, transparent); color: var(--f-accent); }
+.planfold-locked-tick svg { width: 11px; height: 11px; stroke-width: 3; }
+
+/* ---------- Offer card v6: Free vs Pro, side by side ---------- */
+.planfold-locked-compare { display: flex; flex-direction: column; border-radius: var(--t-radius); overflow: hidden; }
+.planfold-compare-row { display: grid; grid-template-columns: minmax(0, 1fr) var(--t-space-7) var(--t-space-7); align-items: center; gap: var(--t-space-2); padding: var(--t-space-2) 0; border-bottom: 1px solid var(--background-modifier-border); color: var(--f-ink); font-size: var(--t-type-body); line-height: var(--t-leading-body); }
+.planfold-compare-row:last-child { border-bottom: 0; }
+.planfold-compare-row.is-head { padding-top: 0; color: var(--f-muted); font-size: var(--t-type-caption); font-weight: var(--t-weight-semibold); }
+.planfold-compare-col { display: flex; justify-content: center; text-align: center; }
+.planfold-compare-row.is-head .planfold-compare-col.is-pro { color: var(--f-accent); }
+.planfold-compare-no { color: var(--f-muted); opacity: .6; }
+/* the first row reads as three short lines; the tick columns get more room */
+.planfold-compare-name { white-space: pre-line; }
+.planfold-compare-row { grid-template-columns: minmax(0, 1fr) calc(var(--t-space-7) + var(--t-space-4)) calc(var(--t-space-7) + var(--t-space-4)); column-gap: var(--t-space-3); padding: var(--t-space-3) 0; }
+.planfold-locked-help { padding-top: var(--t-space-3); border-top: 1px solid var(--background-modifier-border); color: var(--f-muted); font-size: var(--t-type-caption); text-align: center; }
+.planfold-locked-help a { color: var(--f-accent); text-decoration: none; }
+.planfold-locked-help a:hover { text-decoration: underline; }
+
+/* ---------- Offer card in the narrow sidebar: tighter columns, buttons never wrap ---------- */
+.planfold-locked-row .planfold-btn { flex: none; white-space: nowrap; }
+.planfold-root .planfold-teaser.is-side .planfold-teaser-card { padding: var(--t-space-4); margin: 0 var(--t-space-2); }
+.planfold-teaser.is-side .planfold-compare-row { grid-template-columns: minmax(0, 1fr) var(--t-space-6) var(--t-space-6); column-gap: var(--t-space-2); font-size: var(--t-type-caption); }
+.planfold-teaser.is-side .planfold-locked-buy { font-size: var(--t-type-body); }
+
+/* ---------- Offer card: fit any width (the right sidebar can be very narrow) ---------- */
+/* Sized by the card's own width, not by the window, so it works in a narrow sidebar too. */
+.planfold-root .planfold-teaser-card { container-type: inline-size; min-width: 0; }
+@container (max-width: 380px) {
+  .planfold-compare-row { grid-template-columns: minmax(0, 1fr) var(--t-space-6) var(--t-space-6) !important; column-gap: var(--t-space-2) !important; font-size: var(--t-type-caption); padding: var(--t-space-2) 0 !important; }
+  .planfold-locked .planfold-locked-buy { font-size: var(--t-type-body) !important; white-space: normal; line-height: 1.3; padding: var(--t-space-2) var(--t-space-3) !important; }
+  .planfold-locked-row { flex-wrap: wrap; }
+  .planfold-locked-row .planfold-locked-input { flex: 1 1 100%; }
+  .planfold-locked-row .planfold-btn { flex: 1 1 auto; }
+  .planfold-locked-help { overflow-wrap: anywhere; }
+}
+@container (max-width: 260px) {
+  /* very narrow: just what Pro adds, one column of ticks */
+  .planfold-compare-row { grid-template-columns: minmax(0, 1fr) var(--t-space-5) !important; }
+  .planfold-compare-row > .planfold-compare-col:not(.is-pro):nth-child(2) { display: none; }
+}
+
+/* ---------- Review habits, one column: the count and its bar stay at the right edge ---------- */
+/* A later Review rule gave the row three columns again, so in the narrow layout the count landed in the
+   wide middle column. Narrow is two columns: name | count, with the day squares on their own line below. */
+.planfold-root[data-w="narrow"].is-review .planfold-habit-row { grid-template-columns: minmax(0, 1fr) auto; }
+.planfold-root[data-w="narrow"].is-review .planfold-habit-score { grid-column: 2; grid-row: 1; justify-self: end; width: 140px; }
+
+/* ---- 中转站 (Later): its door is a quiet icon at the right of the list head; open, its list follows the day's
+   list with no box of its own; a drop zone appears under the list only while a to-do is dragged ---- */
+.planfold-later-door { display: inline-flex; align-items: center; gap: var(--t-space-1); flex: 0 0 auto; margin-left: auto; padding: var(--t-space-1) !important; height: auto !important; min-height: var(--t-control-h); background: transparent !important; border: 0 !important; box-shadow: none !important; color: var(--f-muted); opacity: .55; font-size: var(--t-type-caption); cursor: pointer; }
+.planfold-later-door.is-empty { opacity: .35; }
+.planfold-later-door:hover, .planfold-later-door:focus-visible, .planfold-later-door.is-on, .planfold-later-door.is-drop { opacity: 1; color: var(--f-ink); }
+.planfold-later-icon { display: inline-flex; flex: 0 0 auto; }
+.planfold-later-icon svg { width: 16px; height: 16px; }
+.planfold-later-count { font-variant-numeric: tabular-nums; }
+.planfold-head-acts { display: inline-flex; align-items: center; gap: var(--t-space-1); }
+.planfold-later { margin-top: var(--t-space-3); }
+.planfold-later.is-zone { display: none; }
+.planfold-root.is-dragging-todo .planfold-later.is-zone { display: block; }
+.planfold-later-zone { display: flex; align-items: center; justify-content: center; gap: var(--t-space-1); padding: var(--t-space-2); border: 1px dashed var(--background-modifier-border); border-radius: var(--t-radius-sm); color: var(--f-muted); font-size: var(--t-type-caption); }
+.planfold-later.is-zone.is-drop .planfold-later-zone { border-color: var(--interactive-accent); color: var(--f-ink); }
+.planfold-later.is-open { border-top: 1px solid var(--background-modifier-border); padding-top: var(--t-space-2); }
+.planfold-later-bar { display: flex; align-items: center; justify-content: space-between; gap: var(--t-space-2); }
+.planfold-later-chip { display: inline-flex; align-items: center; gap: var(--t-space-1); padding: 0 !important; height: auto !important; background: transparent !important; border: 0 !important; box-shadow: none !important; color: var(--f-muted); font-size: var(--t-type-caption); cursor: pointer; }
+.planfold-later-chip:hover { color: var(--f-ink); }
+.planfold-later-chev { display: inline-flex; }
+.planfold-later-chev svg { width: 12px; height: 12px; }
+.planfold-later-all { font-size: var(--t-type-caption); }
+.planfold-later-list.planfold-todos { padding: var(--t-space-1) 0 0; background: transparent; }
+.planfold-later-list .planfold-todo-text { flex: 1 1 auto; min-width: 0; }
+.planfold-root .planfold-later-date { flex: 0 0 auto; width: 24px; height: 24px; min-width: 24px !important; min-height: 24px !important; padding: 0 !important; color: var(--f-muted); opacity: 0; }
+.planfold-root .planfold-later-date svg { width: 14px; height: 14px; flex: 0 0 auto; }
+.planfold-todo:hover .planfold-later-date, .planfold-later-date:focus-visible { opacity: 1; }
+@media (hover: none) { .planfold-root .planfold-later-date { opacity: .7; } }
+.planfold-daypop { position: absolute; z-index: 30; width: 232px; padding: var(--t-space-3); background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: var(--t-radius-sm); box-shadow: var(--shadow-s); }
+.planfold-daypop-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--t-space-2); }
+.planfold-daypop-title { color: var(--f-ink); font-size: var(--t-type-caption); font-weight: 600; }
+.planfold-daypop-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: var(--t-space-0); }
+.planfold-daypop-wd { text-align: center; color: var(--f-muted); font-size: var(--t-type-caption); padding-bottom: var(--t-space-1); }
+.planfold-root .planfold-daypop-day { height: 28px; padding: 0 !important; background: transparent !important; border: 0 !important; box-shadow: none !important; border-radius: var(--t-radius-sm); color: var(--f-ink); font-size: var(--t-type-caption); font-variant-numeric: tabular-nums; cursor: pointer; }
+.planfold-root .planfold-daypop-day:hover { background: var(--background-modifier-hover) !important; }
+.planfold-root .planfold-daypop-day.is-today { color: var(--f-accent); font-weight: 600; }
+
+/* Recent lines up with the folders below: the card spans the file list's width, so its title and rows start
+   exactly where folder titles do (the card's own inset used to push them 12px right) */
+body.planfold-look .nav-files-container > .planfold-explorer { margin-left: 0; margin-right: 0; padding-left: 0; padding-right: 0; }
+
+/* a long link or path in a note section wraps inside the card instead of running out of it */
+.planfold-field { min-width: 0; }
+.planfold-field-preview, .planfold-field-input { min-width: 0; max-width: 100%; overflow-wrap: anywhere; word-break: break-word; }
+.planfold-field-preview a, .planfold-field-preview .internal-link, .planfold-field-preview .external-link { overflow-wrap: anywhere; word-break: break-all; }

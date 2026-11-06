@@ -1,66 +1,47 @@
 # Planfold
 
-Plan your days, weeks, months and years in plain Markdown — from one home page.
+**A planner for Obsidian. Start each day from one home page, plan your weeks, months and years, and look back — all in plain Markdown.**
 
-Planfold gives Obsidian a ready-to-use planner with two tabs:
+English | [中文](README.zh-CN.md)
 
-- **Home** — where to start today: to-dos, mood, habits, quick capture, pinned and recent notes.
-- **Note** — write plans and reviews for a day, week, month or year. Each scale has its own to-do list and an editable template.
+![Planfold Home](assets/home.png)
 
-Planfold is free.
+> [!NOTE]
+> - **Payment:** Home and daily notes are free. Weekly, monthly and yearly plans, Review and the calendar view need **Planfold Pro** (one-time purchase).
+> - **Network:** Planfold only goes online if you activate a Gumroad key (checked once) or leave your email for update notes (Buttondown). Your notes are never sent anywhere.
 
-## Your data stays in Markdown
+## Highlights
 
-Everything Planfold writes is ordinary Markdown in your vault:
+- **Home** — today's to-dos, mood, habits and quick notes in one place.
+- **Note** — a day, week, month or year: its to-dos on the left, its note on the right.
+- **Review** *(Pro)* — your month or year on one page: days written, mood, habits, best week.
+- **Calendar** *(Pro)* — timed to-dos laid out by the hour in the sidebar.
+- **Plain Markdown** — everything lives in your own daily, weekly and monthly notes. Works with Obsidian Daily notes and Periodic Notes.
+- **English and Chinese.**
 
-| What | Where |
-|---|---|
-| Daily to-dos, mood, habit check-ins, daily fields | Your daily note (mood and habits as properties) |
-| Week / month / year to-dos and notes | One note per period, in the Planfold folder (configurable) |
-| Habit list | `Goals.md` in the Planfold folder |
+![A day in Note](assets/note-day.png)
 
-Already keep daily notes? Setup finds them — Obsidian's Daily notes, Periodic Notes, or any folder of date-named notes — and keeps your folder, file names and template exactly as they are. Planfold asks before adding anything to a note you already wrote.
+![A week in Note](assets/note-week.png)
 
-## Privacy and permissions
+## Free vs Pro
 
-Planfold runs entirely on your device and collects no usage data.
+| Features | Free | Pro |
+|---|:-:|:-:|
+| Home: to-dos, mood, habits, quick notes | ✅ | ✅ |
+| Daily notes | ✅ | ✅ |
+| Weekly, monthly and yearly plans and reviews | ❌ | ✅ |
+| Review | ❌ | ✅ |
+| Calendar view | ❌ | ✅ |
 
-**Network use:** the only network request Planfold makes is optional. At the end of setup (and in Settings → Planfold → System) you can leave an email address to hear about new versions. Only if you type an address and confirm, Planfold sends that one address to [Buttondown](https://buttondown.com), the newsletter service that delivers the update emails. Nothing else is sent, skipping it sends nothing, and every email has an unsubscribe link. Buttondown's privacy policy: https://buttondown.com/legal/privacy
+**Get Pro:** Gumroad (international) or the Xiaohongshu shop (China). Pay once, use it on all your devices.
+**Activate:** open any Pro page, paste your key, press **Activate**.
 
-- **Reads your vault's file list** to show Recent notes, Projects and search on Home.
-- **Writes to the clipboard** only when you press *Copy* in the mobile quick capture guide.
-- **Device-only lists** (recent notes and activity) are kept with Obsidian's per-vault local storage, so they don't sync between devices.
+## Install
 
-## Commands
+**Settings → Community plugins → Browse**, search “Planfold”, install and enable. A short setup walks you through the rest.
 
-- Open home
-- Open today's daily note
-- Quick capture to today
-- Set up mobile quick capture
-- Pin or unpin the current note
+## Contact
 
-## Mobile quick capture
+remi.rx@hotmail.com
 
-Planfold registers the URL `obsidian://planfold-capture?text=…`. Any shortcut or app that can open a URL can append text to today's note. Run **Set up mobile quick capture** for a step-by-step guide for iOS Shortcuts.
-
-## Appearance
-
-By default Planfold follows your theme. In **Settings → Planfold → Layout & look** you can switch to the *Planfold design*, which also restyles sidebars, tabs and the file list. Setup asks which look you want the first time. Pinned and Recent shortcuts at the top of the file explorer can be turned on in the same place.
-
-## Languages
-
-English and Simplified Chinese (界面支持中文).
-
-## Installation
-
-From Obsidian: **Settings → Community plugins → Browse**, search for “Planfold”.
-
-Manual: download `main.js`, `manifest.json` and `styles.css` from the latest release into `<vault>/.obsidian/plugins/planfold/`, then enable Planfold under Community plugins.
-
-## Source code
-
-Planfold is free to use but closed source. Its source code is kept in a private repository; Obsidian verifies each release by rebuilding it from that source.
-
-## License
-
-Free to use; closed source; all rights reserved. See [LICENSE](LICENSE).
+All rights reserved. See [LICENSE](LICENSE).
