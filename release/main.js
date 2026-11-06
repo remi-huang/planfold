@@ -156,6 +156,7 @@ const DEFAULTS = {
   calendarSidebarAdded: false, homeHidden: [], homeLayout: null, homeLayoutVersion: 0, explorerShortcuts: false, explorerCollapsed: {}, fourfoldLook: false, homePalette: "theme", ignoreFolders: [], weekStart: "monday", timeFormat: "",
   homePinnedPaths: [], homeProjects: [], homeRecentPaths: [], homeRecentTimes: {}, homeActivity: {}, homeActivityTimes: {},
   migratedFrom: "",
+  laterAuto: true, laterSwept: "", // 中转站: yesterday's unfinished to-dos move in on the next day; laterSwept = last day already checked
 };
 
 /* What you opened and edited, by day: changes all the time and only describes this device, so it lives in this
@@ -349,6 +350,10 @@ class PlanfoldPlugin extends Plugin {
       if (this.settings.migratedFrom) await this.importFields();
       // proto.44: the week calendar moves from Home to the right sidebar — put it there once; after that, where you keep it is up to you
       if (PRO && !this.settings.calendarSidebarAdded) { this.settings.calendarSidebarAdded = true; await this.saveSettings(); this.openCalendar(false); }
+      // the 中转站 picks up yesterday's unfinished to-dos: shortly after start (so a sync can bring other devices' changes
+      // first), then whenever the local date has moved on — the computer's or phone's own time zone decides when a day ends
+      setTimeout(() => this.sweepLater(), 8000);
+      this.registerInterval(window.setInterval(() => this.sweepLater(), 60000));
       if (!this.settings.setupDone) { this.openView().then(() => new OnboardingModal(this.app, this).open()); return; }
       if (this.settings.openOnStartup) this.openView();
     });
@@ -818,16 +823,49 @@ class PlanfoldPlugin extends Plugin {
     await this.addTodo(scope, m, body, item.done);
     return this.lineOp(path, item, () => null);
   }
-  /** Move several to-dos at once (into or out of the 中转站). Same rule as one: add to the target first, then remove. */
-  async moveTodos(path, items, scope, m) {
+  /** Days that have ended (local time) send a copy of their unfinished to-dos to the 中转站; the day keeps its own
+      list as it was, so looking back still shows what was planned. Each day is checked once (settings.laterSwept);
+      the first run only looks at yesterday, later runs catch up at most a month.
+      A to-do already waiting there with the same text is not added twice (two synced devices may both sweep). */
+  async sweepLater() {
+    const S = this.settings;
+    if (S.laterAuto === false || this._sweeping) return;
+    const yesterday = moment().startOf("day").subtract(1, "day");
+    if (S.laterSwept === yesterday.format(DKEY)) return;
+    this._sweeping = true;
+    let moved = 0;
+    try {
+      let d = S.laterSwept ? moment(S.laterSwept, DKEY).add(1, "day") : yesterday.clone();
+      const oldest = yesterday.clone().subtract(30, "day");
+      if (!d.isValid() || d.isBefore(oldest)) d = oldest;
+      const key = (it) => norm((it.time || "") + " " + it.text);
+      for (; !d.isAfter(yesterday, "day"); d.add(1, "day")) {
+        const note = await this.readNote("day", d);
+        const open = note.exists ? note.items.filter((i) => !i.done) : [];
+        if (!open.length) continue;
+        const waiting = new Set((await this.readNote("later")).items.filter((i) => !i.done).map(key));
+        const add = open.filter((it) => !waiting.has(key(it)));
+        if (!add.length) continue;
+        await this.addTodos("later", moment(), add.map((it) => ({ text: (it.star ? "⭐ " : "") + (it.time ? it.time + " " : "") + it.text })));
+        moved += add.length;
+      }
+      S.laterSwept = yesterday.format(DKEY);
+      await this.saveSettings();
+    } catch (e) { console.error("Planfold: moving unfinished to-dos to Later failed", e); }
+    finally { this._sweeping = false; }
+    if (moved) this.views().forEach((v) => v.softRefresh());
+  }
+  /** Move several to-dos at once (into or out of the 中转站). Same rule as one: add to the target first, then remove.
+      `add` can leave some out of the target (they are only removed); `quiet` skips the "note changed" notice. */
+  async moveTodos(path, items, scope, m, add = () => true, quiet = false) {
     items = (items || []).filter(Boolean);
     const f = this.app.vault.getAbstractFileByPath(path);
     if (!items.length || !(f instanceof TFile)) return false;
     const target = this.fileFor(scope, m);
     if ((target ? target.path : this.pathFor(scope, m)) === path) return true;
     const ls = lf(await this.app.vault.read(f)).split("\n");
-    if (items.some((it) => ls[it.line] !== it.raw)) { this.staleNotice(); return false; }
-    await this.addTodos(scope, m, items.map((it) => ({ text: (it.star ? "⭐ " : "") + (it.time ? it.time + " " : "") + it.text, done: it.done })));
+    if (items.some((it) => ls[it.line] !== it.raw)) { if (!quiet) this.staleNotice(); return false; }
+    await this.addTodos(scope, m, items.filter(add).map((it) => ({ text: (it.star ? "⭐ " : "") + (it.time ? it.time + " " : "") + it.text, done: it.done })));
     let ok = true;
     await this.app.vault.process(f, (data) => {
       const xs = lf(data).split("\n");
@@ -835,7 +873,7 @@ class PlanfoldPlugin extends Plugin {
       [...items].sort((a, b) => b.line - a.line).forEach((it) => xs.splice(it.line, 1));
       return xs.join("\n");
     });
-    if (!ok) this.staleNotice();
+    if (!ok && !quiet) this.staleNotice();
     return ok;
   }
   staleNotice() { new Notice(L("The note just changed. Refreshed — please try again.", "笔记刚刚有变动，已刷新，请再试一次。")); }
@@ -4162,6 +4200,8 @@ class PlanfoldSettingTab extends PluginSettingTab {
     this.sub(el, L("Time", "时间设置"));
     this.row(el, L("Week starts on", "每周开始于"), (PRO ? L("How the sidebar and Review calendars are drawn. Weekly notes always follow ISO weeks (Mon–Sun).", "右侧栏和回顾页日历从哪天开始。周笔记始终按 ISO 周（周一到周日）。") : L("The first day of the week on Home. Weekly notes always follow ISO weeks (Mon–Sun).", "主页上一周从哪天开始。周笔记始终按 ISO 周（周一到周日）。"))).addDropdown((d) => d.addOption("monday", L("Monday", "周一")).addOption("sunday", L("Sunday", "周日")).setValue(S.weekStart).onChange((v) => { S.weekStart = v; this.save(); }));
     this.row(el, L("Time format", "时间格式")).addDropdown((d) => d.addOption("", L("Automatic", "自动")).addOption("12", L("12-hour", "12 小时制")).addOption("24", L("24-hour", "24 小时制")).setValue(S.timeFormat).onChange((v) => { S.timeFormat = v; this.save(); }));
+    this.row(el, L("Copy unfinished to-dos to Later", "未完成的待办放进中转站"), L("When a day ends (your device's time zone), its unchecked to-dos are copied to Later, ready for another day. The day itself keeps them as they were.", "一天结束后（按你设备的时区），当天没勾掉的待办会复制一份到中转站，方便安排到别的日子；原来那天的记录保持不变。"))
+      .addToggle((t) => t.setValue(S.laterAuto !== false).onChange((v) => { S.laterAuto = v; if (v) S.laterSwept = ""; this.save(); if (v) p.sweepLater(); }));
     this.sub(el, L("Other", "其他"));
     if (S.updateEmail) {
       this.row(el, L("Update emails", "更新提醒"), L(`Sent to ${S.updateEmail}. If you haven't yet, click the confirm link in the email from Planfold Updates.`, `发到 ${S.updateEmail}。如果还没确认，请点一下 Planfold Updates 发来的确认邮件（可能在垃圾邮件里）。`))
