@@ -2440,3 +2440,15 @@ body.planfold-look .nav-files-container > .planfold-explorer { margin-left: 0; m
 .planfold-field { min-width: 0; }
 .planfold-field-preview, .planfold-field-input { min-width: 0; max-width: 100%; overflow-wrap: anywhere; word-break: break-word; }
 .planfold-field-preview a, .planfold-field-preview .internal-link, .planfold-field-preview .external-link { overflow-wrap: anywhere; word-break: break-all; }
+
+/* the lightest mood dot has no ring of its own (only the chosen dot gets one) */
+.planfold-dot.m1:not(.is-on) { box-shadow: none !important; }
+
+/* drag handles stay inside their card at every width: a slimmer handle in the card's left padding
+   (touch screens keep the in-line handle from the hover:none rule) */
+@media (hover: hover) {
+  .planfold-root .planfold-todo > .planfold-grip { width: 16px !important; min-width: 16px !important; left: -20px !important; }
+  .planfold-root[data-w="narrow"] .planfold-todo > .planfold-grip { left: -16px !important; }
+  .planfold-root .planfold-home-star .planfold-todo:not(.is-done) > .planfold-grip { left: -12px !important; }
+  .planfold-root[data-w="narrow"] .planfold-home-star .planfold-todo:not(.is-done) > .planfold-grip { left: -8px !important; }
+}

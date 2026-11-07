@@ -937,6 +937,13 @@ class PlanfoldPlugin extends Plugin {
     if (!(v > 0) && !this.fileFor("day", d)) return;
     const f = await this.ensureNote("day", d);
     await this.app.fileManager.processFrontMatter(f, (fm) => { if (v > 0) fm[MOOD_KEY] = v; else delete fm[MOOD_KEY]; });
+    await this.settleFm(f, (fm) => (v > 0 ? Number(fm[MOOD_KEY]) === v : fm[MOOD_KEY] == null));
+  }
+  /** The page reads mood and habits from Obsidian's metadata cache, which can lag the file by a moment (on phones
+      noticeably). Wait until it shows what was just written, so the redraw after a tap never paints the old state. */
+  async settleFm(f, ok, ms = 2000) {
+    const t = Date.now();
+    while (Date.now() - t < ms) { if (ok(this.fm(f))) return; await new Promise((r) => setTimeout(r, 50)); }
   }
   goalsPath() { return `${this.dir()}/Goals.md`; }
   async goals() {
@@ -979,6 +986,7 @@ class PlanfoldPlugin extends Plugin {
     const f = await this.ensureNote("day", d);
     const v = /^(days?|天|times?|次)$/i.test(g.unit || "days") ? 1 : g.target;
     await this.app.fileManager.processFrontMatter(f, (fm) => { if (on) fm[g.key] = v; else delete fm[g.key]; });
+    await this.settleFm(f, (fm) => (on ? fm[g.key] != null : fm[g.key] == null));
   }
 
   /* ---------- one day, summarised (cached by file + mtime) ---------- */
@@ -1219,7 +1227,11 @@ function moodDots(parent, value, onPick, size) {
     b.setAttr("role", "button"); b.tabIndex = 0;
     b.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); b.click(); } });
     b.setAttr("aria-label", L(`Mood ${i} of 5`, `心情 ${i} / 5`));
-    if (onPick) b.addEventListener("click", () => onPick(value === i ? 0 : i));
+    if (onPick) b.addEventListener("click", () => {
+      value = value === i ? 0 : i; // shown at once; the note is written behind it
+      box.querySelectorAll(".planfold-dot").forEach((x, k) => x.toggleClass("is-on", k + 1 === value));
+      onPick(value);
+    });
   }
   return box;
 }
@@ -3154,7 +3166,12 @@ Object.assign(PlanfoldView.prototype, {
       h(b, "span", "planfold-check" + (on ? " is-on" : ""));
       h(b, "span", "planfold-ff-habit-name", g.name);
       if (future) { b.disabled = true; continue; }
-      b.addEventListener("click", async () => { await p.setHabit(d, g, !on); setTimeout(() => this.render(), 150); });
+      b.addEventListener("click", async () => {
+        const next = !b.classList.contains("is-done"); // shown at once; redrawn once the note has it
+        b.toggleClass("is-done", next); b.setAttr("aria-pressed", next ? "true" : "false");
+        const c = b.querySelector(".planfold-check"); if (c) c.toggleClass("is-on", next);
+        await p.setHabit(d, g, next); this.render();
+      });
     }
   },
 
@@ -3214,7 +3231,12 @@ Object.assign(PlanfoldView.prototype, {
       const target = Math.max(1, Math.min(7, parseInt(g.target) || 7));
       h(b, "span", "planfold-habit-week" + (count >= target ? " is-met" : ""), `${count}/${target}`);
       if (moment(d).isAfter(moment(), "day")) { b.disabled = true; continue; }
-      b.addEventListener("click", async () => { await p.setHabit(d, g, !on); setTimeout(() => this.render(), 150); });
+      b.addEventListener("click", async () => {
+        const next = !b.classList.contains("is-done"); // shown at once; redrawn once the note has it
+        b.toggleClass("is-done", next); b.setAttr("aria-pressed", next ? "true" : "false");
+        const c = b.querySelector(".planfold-check"); if (c) c.toggleClass("is-on", next);
+        await p.setHabit(d, g, next); this.render();
+      });
     }
   },
 
